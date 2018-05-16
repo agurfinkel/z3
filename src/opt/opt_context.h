@@ -244,16 +244,6 @@ namespace opt {
         expr_ref mk_ge(unsigned i, model_ref& model) override;
         expr_ref mk_le(unsigned i, model_ref& model) override;
 
-#if 0
-        virtual smt::context& smt_context() { return m_opt_solver->get_context(); }
-        virtual bool sat_enabled() const { return 0 != m_sat_solver.get(); }
-        virtual solver& get_solver();
-        virtual ast_manager& get_manager() const { return this->m; }
-        virtual params_ref& params() { return m_params; }
-        virtual void enable_sls(bool force);
-        virtual symbol const& maxsat_engine() const { return m_maxsat_engine; }
-        virtual void get_base_model(model_ref& _m);
-#endif
         generic_model_converter& fm() override { return *m_fm; }
         smt::context& smt_context() override { return m_opt_solver->get_context(); }
         bool sat_enabled() const override { return nullptr != m_sat_solver.get(); }
