@@ -71,7 +71,7 @@ namespace Duality {
         case Ite:      return mki(m_basic_fid,OP_ITE,n,args);
         case And:      return mki(m_basic_fid,OP_AND,n,args);
         case Or:       return mki(m_basic_fid,OP_OR,n,args);
-        case Iff:      return mki(m_basic_fid,OP_IFF,n,args);
+        case Iff:      return mki(m_basic_fid,OP_EQ,n,args);
         case Xor:      return mki(m_basic_fid,OP_XOR,n,args);
         case Not:      return mki(m_basic_fid,OP_NOT,n,args);
         case Implies:  return mki(m_basic_fid,OP_IMPLIES,n,args);
@@ -224,7 +224,6 @@ namespace Duality {
             case OP_ITE:      return Ite;
             case OP_AND:      return And;
             case OP_OR:       return Or;
-            case OP_IFF:      return Iff;
             case OP_XOR:      return Xor;
             case OP_NOT:      return Not;
             case OP_IMPLIES:  return Implies;

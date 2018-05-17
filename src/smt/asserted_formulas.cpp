@@ -500,7 +500,7 @@ unsigned asserted_formulas::propagate_values(unsigned i) {
 
 void asserted_formulas::update_substitution(expr* n, proof* pr) {
     expr* lhs, *rhs, *n1;
-    if (is_ground(n) && (m.is_eq(n, lhs, rhs) || m.is_iff(n, lhs, rhs))) {
+    if (is_ground(n) && m.is_eq(n, lhs, rhs)) {
         compute_depth(lhs);
         compute_depth(rhs);
         if (is_gt(lhs, rhs)) {
