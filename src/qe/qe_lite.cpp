@@ -89,7 +89,7 @@ namespace eq {
                 var * v  = vars[i];
                 expr * t = definitions[i];
                 if (t == nullptr || has_quantifiers(t) || occurs_var(v->get_idx(), t))
-                    definitions[i] = 0;
+                    definitions[i] = nullptr;
                 else
                     found = true; // found at least one candidate
             }
@@ -126,11 +126,11 @@ namespace eq {
                         if (fr.second == 0) {
                             CTRACE("der_bug", vidx >= definitions.size(), tout << "vidx: " << vidx << "\n";);
                             // Remark: The size of definitions may be smaller than the number of variables occurring in the quantified formula.
-                            if (definitions.get(vidx, 0) != 0) {
+                            if (definitions.get(vidx, nullptr) != nullptr) {
                                 if (visiting.is_marked(t)) {
                                     // cycle detected: remove t
                                     visiting.reset_mark(t);
-                                    definitions[vidx] = 0;
+                                    definitions[vidx] = nullptr;
                                 }
                                 else {
                                     visiting.mark(t);
@@ -142,13 +142,11 @@ namespace eq {
                         }
                         else {
                             SASSERT(fr.second == 1);
-                            if (definitions.get(vidx, 0) != 0) {
-                                visiting.reset_mark(t);
-                                order.push_back(vidx);
-                            }
-                            else {
-                                // var was removed from the list of candidate vars to elim cycle
-                                // do nothing
+                            visiting.reset_mark(t);
+                            if (!done.is_marked(t)) {
+                                if (definitions.get(vidx, nullptr) != nullptr)
+                                    order.push_back(vidx);
+                                done.mark(t);
                             }
                         }
                         if (t->get_ref_count() > 1)
@@ -164,13 +162,11 @@ namespace eq {
                         while (fr.second < num) {
                             expr * arg = to_app(t)->get_arg(fr.second);
                             fr.second++;
-                            if (arg->get_ref_count() > 1 && done.is_marked(arg))
-                                continue;
+                            if (done.is_marked(arg)) continue;
                             todo.push_back(frame(arg, 0));
                             goto start;
                         }
-                        if (t->get_ref_count() > 1)
-                            done.mark(t);
+                        if (t->get_ref_count() > 1) done.mark(t);
                         todo.pop_back();
                         break;
                     default:
@@ -449,7 +445,13 @@ namespace eq {
                 expr_ref r(m);
                 m_subst(cur, m_subst_map.size(), m_subst_map.c_ptr(), r);
                 unsigned inx = sz - m_order[i]- 1;
-                SASSERT(m_subst_map[inx]==0);
+                CTRACE("topo_sort", inx == 0 || m_subst_map.get(inx) != nullptr,
+                       tout << "inx is " << inx << "\n"
+                       << "i is " << i << "\n"
+                       << "sz is " << sz << "\n"
+                       << "m_order[i] is " << m_order[i] << "\n"
+                       << "m_subst_map[inx]: " << mk_pp(m_subst_map.get(inx), m) << "\n";);
+                SASSERT(m_subst_map.get(inx) == nullptr);
                 m_subst_map[inx] = r;
             }
         }
