@@ -41,7 +41,7 @@ namespace eq {
 
     bool occurs_var(unsigned idx, expr* e) {
         ptr_buffer<expr> todo;
-        todo.push_back(e);        
+        todo.push_back(e);
         ast_mark mark;
         while (!todo.empty()) {
             expr* e = todo.back();
@@ -579,7 +579,12 @@ namespace eq {
                 if (is_var_def(is_exists, args[i], vs, ts)) {
                     for (unsigned j = 0; j < vs.size(); ++j) {
                         var* v = vs[j];
-                        expr* t = ts[j].get();
+                        expr_ref t(m);
+
+                        t = ts[j].get();
+                        m_rewriter(t);
+                        if (t.get () != ts[j].get()) {m_new_exprs.push_back(t);}
+
                         unsigned idx = v->get_idx();
                         if (m_map.get(idx, 0) == 0) {
                             m_map.reserve(idx + 1, 0);
