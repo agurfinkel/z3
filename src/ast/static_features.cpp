@@ -111,16 +111,6 @@ void static_features::flush_cache() {
     m_expr2formula_depth.reset();
 }
 
-#if 0
-bool static_features::is_non_linear(expr * e) const {
-    if (!is_arith_expr(e))
-        return false;
-    if (is_numeral(e))
-        return true;
-    if (m_autil.is_add(e))
-        return true; // the non
-} 
-#endif
 
 bool static_features::is_diff_term(expr const * e, rational & r) const {
     // lhs can be 'x' or '(+ k x)'
@@ -145,25 +135,28 @@ bool static_features::is_diff_atom(expr const * e) const {
         return true;    
     if (!is_numeral(rhs)) 
         return false;    
-    // lhs can be 'x' or '(+ x (* -1 y))'
+    // lhs can be 'x' or '(+ x (* -1 y))' or '(+ (* -1 x) y)'
     if (!is_arith_expr(lhs))
         return true;
     expr* arg1, *arg2;
     if (!m_autil.is_add(lhs, arg1, arg2)) 
         return false;    
-    // x
-    if (is_arith_expr(arg1))
-        return false;
-    // arg2: (* -1 y)
     expr* m1, *m2;
-    return m_autil.is_mul(arg2, m1, m2) &&  is_minus_one(m1) && !is_arith_expr(m2);
+    if (!is_arith_expr(arg1) && m_autil.is_mul(arg2, m1, m2) &&  is_minus_one(m1) && !is_arith_expr(m2))
+        return true;
+    if (!is_arith_expr(arg2) && m_autil.is_mul(arg1, m1, m2) &&  is_minus_one(m1) && !is_arith_expr(m2))
+        return true;
+    return false;
+    
 }
 
 bool static_features::is_gate(expr const * e) const {
     if (is_basic_expr(e)) {
         switch (to_app(e)->get_decl_kind()) {
-        case OP_ITE: case OP_AND: case OP_OR: case OP_IFF: case OP_XOR: case OP_IMPLIES:
+        case OP_ITE: case OP_AND: case OP_OR: case OP_XOR: case OP_IMPLIES:
             return true;
+        case OP_EQ:
+            return m_manager.is_bool(e);
         }
     }
     return false;
@@ -215,7 +208,7 @@ void static_features::update_core(expr * e) {
         case OP_OR:
             m_num_ors++;
             break;
-        case OP_IFF: 
+        case OP_EQ: 
             m_num_iffs++;
             break;
         }
@@ -300,10 +293,12 @@ void static_features::update_core(expr * e) {
                 m_num_interpreted_constants++;
         }
         if (fid == m_afid) {
+            // std::cout << mk_pp(e, m_manager) << "\n";
             switch (to_app(e)->get_decl_kind()) {
             case OP_MUL:
-                if (!is_numeral(to_app(e)->get_arg(0)))
+                if (!is_numeral(to_app(e)->get_arg(0)) || to_app(e)->get_num_args() > 2) {
                     m_num_non_linear++;
+                }
                 break;
             case OP_DIV:
             case OP_IDIV:
@@ -421,7 +416,7 @@ void static_features::process(expr * e, bool form_ctx, bool or_and_ctx, bool ite
             form_ctx_new   = true;
             or_and_ctx_new = true;
             break;
-        case OP_IFF:
+        case OP_EQ:
             form_ctx_new   = true;
             break;
         }

@@ -93,7 +93,7 @@ namespace datalog {
         typedef obj_map<func_decl, adornment> pred_adornment_map;
         typedef obj_map<func_decl, func_decl *> pred2pred;
 
-        context &	       m_context;
+        context &              m_context;
         ast_manager &          m;
         rule_manager&          rm;
         ast_ref_vector         m_pinned;
@@ -126,7 +126,7 @@ namespace datalog {
          */
         mk_magic_sets(context & ctx, func_decl* goal);
         
-        rule_set * operator()(rule_set const & source);
+        rule_set * operator()(rule_set const & source) override;
     };
 
 };

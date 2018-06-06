@@ -16,12 +16,13 @@ Author:
 Revision History:
 
 --*/
-#include "smt/smt_context.h"
-#include "ast/ast_util.h"
-#include "ast/datatype_decl_plugin.h"
-#include "model/model_pp.h"
 #include "util/max_cliques.h"
 #include "util/stopwatch.h"
+#include "ast/ast_util.h"
+#include "ast/ast_pp.h"
+#include "ast/datatype_decl_plugin.h"
+#include "model/model_pp.h"
+#include "smt/smt_context.h"
 
 namespace smt {
 
@@ -243,7 +244,7 @@ namespace smt {
                 }
                 literal lit = mk_diseq(k, v);
                 literals.push_back(lit);
-                mk_clause(literals.size(), literals.c_ptr(), 0);
+                mk_clause(literals.size(), literals.c_ptr(), nullptr);
                 TRACE("context", display_literals_verbose(tout, literals.size(), literals.c_ptr()););
             }
         }    

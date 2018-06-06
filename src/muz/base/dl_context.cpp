@@ -27,7 +27,7 @@ Revision History:
 #include "ast/ast_smt2_pp.h"
 #include "ast/datatype_decl_plugin.h"
 #include "ast/scoped_proof.h"
-#include"fixedpoint_params.hpp"
+#include "muz/base/fixedpoint_params.hpp"
 #include "ast/ast_pp_util.h"
 
 
@@ -45,7 +45,7 @@ namespace datalog {
     protected:
         sort_ref m_sort;
         bool m_limited_size;
-        uint64 m_size;
+        uint64_t m_size;
 
         sort_domain(sort_kind k, context & ctx, sort * s)
             : m_kind(k), m_sort(s, ctx.get_manager()) {
@@ -90,10 +90,10 @@ namespace datalog {
             return idx;
         }
 
-        virtual unsigned get_constant_count() const {
+        unsigned get_constant_count() const override {
             return m_el_names.size();
         }
-        virtual void print_element(finite_element el_num, std::ostream & out) {
+        void print_element(finite_element el_num, std::ostream & out) override {
             if (el_num>=m_el_names.size()) {
                 out << el_num;
                 return;
@@ -103,15 +103,15 @@ namespace datalog {
     };
 
     class context::uint64_sort_domain : public sort_domain {
-        typedef map<uint64,       finite_element,   uint64_hash, default_eq<uint64> > el2num;
-        typedef svector<uint64> num2el;
+        typedef map<uint64_t,     finite_element,   uint64_hash, default_eq<uint64_t> > el2num;
+        typedef svector<uint64_t> num2el;
 
         el2num m_el_numbers;
         num2el m_el_names;
     public:
         uint64_sort_domain(context & ctx, sort * s) : sort_domain(SK_UINT64, ctx, s) {}
 
-        finite_element get_number(uint64 el) {
+        finite_element get_number(uint64_t el) {
             //we number symbols starting from zero, so table->size() is equal to the
             //index of the symbol to be added next
 
@@ -132,10 +132,10 @@ namespace datalog {
             }
             return idx;
         }
-        virtual unsigned get_constant_count() const {
+        unsigned get_constant_count() const override {
             return m_el_names.size();
         }
-        virtual void print_element(finite_element el_num, std::ostream & out) {
+        void print_element(finite_element el_num, std::ostream & out) override {
             if (el_num >= m_el_names.size()) {
                 out << "<unk " << m_sort->get_name() << ":" << el_num << '>';
                 return;
@@ -154,14 +154,14 @@ namespace datalog {
         rule_set* m_old_rules;
         void reset() { 
             dealloc(m_old_rules); 
-            m_old_rules = 0; 
+            m_old_rules = nullptr;
         }
     public:
         restore_rules(rule_set& r): m_old_rules(alloc(rule_set, r)) {}
 
-        virtual ~restore_rules() {}
+        ~restore_rules() override {}
         
-        virtual void undo(context& ctx) {
+        void undo(context& ctx) override {
             ctx.replace_rules(*m_old_rules);
             reset();
         }
@@ -173,8 +173,8 @@ namespace datalog {
         unsigned m_old_size;
     public:
         restore_vec_size_trail(Vec& v): m_vector(v), m_old_size(v.size()) {}
-        virtual ~restore_vec_size_trail() {}
-        virtual void undo(Ctx& ctx) { m_vector.shrink(m_old_size); }
+        ~restore_vec_size_trail() override {}
+        void undo(Ctx& ctx) override { m_vector.shrink(m_old_size); }
     };
 
     void context::push() {
@@ -188,9 +188,7 @@ namespace datalog {
         if (m_trail.get_num_scopes() == 0) {
             throw default_exception("there are no backtracking points to pop to");
         }
-        if (m_engine.get() && get_engine() != DUALITY_ENGINE) {
-            throw default_exception("pop operation is only supported by duality engine");
-        }
+        throw default_exception("pop operation is not supported");
         m_trail.pop_scope(1); 
     }
 
@@ -221,9 +219,9 @@ namespace datalog {
         m_rule_fmls_head(0),
         m_rule_fmls(m),
         m_background(m),
-        m_mc(0),
-        m_rel(0),
-        m_engine(0),
+        m_mc(nullptr),
+        m_rel(nullptr),
+        m_engine(nullptr),
         m_closed(false),
         m_saturation_was_run(false),
         m_enable_bind_variables(true),
@@ -251,8 +249,8 @@ namespace datalog {
         m_preds.reset();
         m_preds_by_name.reset();
         reset_dealloc_values(m_sorts);
-        m_engine = 0;
-        m_rel = 0;
+        m_engine = nullptr;
+        m_rel = nullptr;
     }
 
     bool context::is_fact(app * head) const {
@@ -368,14 +366,14 @@ namespace datalog {
         return dom.get_number(sym);
     }
 
-    context::finite_element context::get_constant_number(relation_sort srt, uint64 el) {
+    context::finite_element context::get_constant_number(relation_sort srt, uint64_t el) {
         sort_domain & dom0 = get_sort_domain(srt);
         SASSERT(dom0.get_kind()==SK_UINT64);
         uint64_sort_domain & dom = static_cast<uint64_sort_domain &>(dom0);
         return dom.get_number(el);
     }
 
-    void context::print_constant_name(relation_sort srt, uint64 num, std::ostream & out)
+    void context::print_constant_name(relation_sort srt, uint64_t num, std::ostream & out)
     {
         if (has_sort_domain(srt)) {
             SASSERT(num<=UINT_MAX);
@@ -386,7 +384,7 @@ namespace datalog {
         }
     }
 
-    bool context::try_get_sort_constant_count(relation_sort srt, uint64 & constant_count) {
+    bool context::try_get_sort_constant_count(relation_sort srt, uint64_t & constant_count) {
         if (!has_sort_domain(srt)) {
             return false;
         }
@@ -394,24 +392,24 @@ namespace datalog {
         return true;
     }
 
-    uint64 context::get_sort_size_estimate(relation_sort srt) {
+    uint64_t context::get_sort_size_estimate(relation_sort srt) {
         if (get_decl_util().is_rule_sort(srt)) {
             return 1;
         }
-        uint64 res;
+        uint64_t res;
         if (!try_get_sort_constant_count(srt, res)) {
-            sort_size sz = srt->get_num_elements();
+            const sort_size & sz = srt->get_num_elements();
             if (sz.is_finite()) {
                 res = sz.size();
             }
             else {
-                res = std::numeric_limits<uint64>::max();
+                res = std::numeric_limits<uint64_t>::max();
             }
         }
         return res;
     }
 
-    void context::set_argument_names(const func_decl * pred, svector<symbol> var_names)
+    void context::set_argument_names(const func_decl * pred, const svector<symbol> & var_names)
     {
         SASSERT(!m_argument_var_names.contains(pred));
         m_argument_var_names.insert(pred, var_names);
@@ -453,7 +451,8 @@ namespace datalog {
         return new_pred;
     }
 
-  void context::add_rule(expr* rl, symbol const& name, unsigned bound) {
+    void context::add_rule(expr* rl, symbol const& name, unsigned bound) {
+        SASSERT(rl);
         m_rule_fmls.push_back(rl);
         m_rule_names.push_back(name);
         m_rule_bounds.push_back(bound);
@@ -461,10 +460,10 @@ namespace datalog {
 
     void context::flush_add_rules() {
         datalog::rule_manager& rm = get_rule_manager();
-        scoped_proof_mode _scp(m, generate_proof_trace()?PGM_FINE:PGM_DISABLED);
+        scoped_proof_mode _scp(m, generate_proof_trace()?PGM_ENABLED:PGM_DISABLED);
         while (m_rule_fmls_head < m_rule_fmls.size()) {
             expr* fml = m_rule_fmls[m_rule_fmls_head].get();
-            proof* p = generate_proof_trace()?m.mk_asserted(fml):0;
+            proof* p = generate_proof_trace()?m.mk_asserted(fml):nullptr;
             rm.mk_rule(fml, p, m_rule_set, m_rule_names[m_rule_fmls_head]);
             ++m_rule_fmls_head;
         }
@@ -477,7 +476,7 @@ namespace datalog {
     // 
     void context::update_rule(expr* rl, symbol const& name) {
         datalog::rule_manager& rm = get_rule_manager();
-        proof* p = 0;
+        proof* p = nullptr;
         if (generate_proof_trace()) {
             p = m.mk_asserted(rl);
         }
@@ -492,7 +491,7 @@ namespace datalog {
         // The new rule is inserted last:
         rule_ref r(m_rule_set.get_rule(size_before), rm);
         rule_ref_vector const& rls = m_rule_set.get_rules();
-        rule* old_rule = 0;
+        rule* old_rule = nullptr;
         for (unsigned i = 0; i < size_before; ++i) {
             if (rls[i]->name() == name) {
                 if (old_rule) {                    
@@ -575,14 +574,8 @@ namespace datalog {
             m_rule_properties.check_infinite_sorts();
             break;
         case SPACER_ENGINE:
-        case PDR_ENGINE:
             m_rule_properties.collect(r);
             m_rule_properties.check_existential_tail();
-            m_rule_properties.check_for_negated_predicates();
-            m_rule_properties.check_uninterpreted_free();
-            break;
-        case QPDR_ENGINE:
-            m_rule_properties.collect(r);
             m_rule_properties.check_for_negated_predicates();
             m_rule_properties.check_uninterpreted_free();
             break;
@@ -596,11 +589,6 @@ namespace datalog {
             m_rule_properties.check_for_negated_predicates();
             break;         
         case TAB_ENGINE:
-            m_rule_properties.collect(r);
-            m_rule_properties.check_existential_tail();
-            m_rule_properties.check_for_negated_predicates();
-            break;
-        case DUALITY_ENGINE:
             m_rule_properties.collect(r);
             m_rule_properties.check_existential_tail();
             m_rule_properties.check_for_negated_predicates();
@@ -780,19 +768,14 @@ namespace datalog {
         DL_ENGINE get_engine() const { return m_engine_type; }
 
         void operator()(expr* e) {
-            if (is_quantifier(e)) {
-                m_engine_type = QPDR_ENGINE;
+            if (a.is_int_real(e)) {
+                m_engine_type = SPACER_ENGINE;
             }
-            else if (m_engine_type != QPDR_ENGINE) {
-                if (a.is_int_real(e)) {
-                    m_engine_type = PDR_ENGINE;
-                }
-                else if (is_var(e) && m.is_bool(e)) {
-                    m_engine_type = PDR_ENGINE;
-                }
-                else if (dt.is_datatype(m.get_sort(e))) {
-                    m_engine_type = PDR_ENGINE;
-                }
+            else if (is_var(e) && m.is_bool(e)) {
+                m_engine_type = SPACER_ENGINE;
+            }
+            else if (dt.is_datatype(m.get_sort(e))) {
+                m_engine_type = SPACER_ENGINE;
             }
         }
     };
@@ -809,12 +792,6 @@ namespace datalog {
         else if (e == symbol("spacer")) {
             m_engine_type = SPACER_ENGINE;
         }
-        else if (e == symbol("pdr")) {
-            m_engine_type = PDR_ENGINE;
-        }
-        else if (e == symbol("qpdr")) {
-            m_engine_type = QPDR_ENGINE;
-        }
         else if (e == symbol("bmc")) {
             m_engine_type = BMC_ENGINE;
         }
@@ -826,9 +803,6 @@ namespace datalog {
         }
         else if (e == symbol("clp")) {
             m_engine_type = CLP_ENGINE;
-        }
-        else if (e == symbol("duality")) {
-            m_engine_type = DUALITY_ENGINE;
         }
         else if (e == symbol("ddnf")) {
             m_engine_type = DDNF_ENGINE;
@@ -860,24 +834,17 @@ namespace datalog {
     lbool context::query(expr* query) {
         m_mc = mk_skip_model_converter();
         m_last_status = OK;
-        m_last_answer = 0;
-        m_last_ground_answer = 0;
+        m_last_answer = nullptr;
+        m_last_ground_answer = nullptr;
         switch (get_engine()) {
         case DATALOG_ENGINE:
         case SPACER_ENGINE:
-        case PDR_ENGINE:
-        case QPDR_ENGINE:
         case BMC_ENGINE:
         case QBMC_ENGINE:
         case TAB_ENGINE:
         case CLP_ENGINE:
         case DDNF_ENGINE:
             flush_add_rules();
-            break;
-        case DUALITY_ENGINE:
-            // this lets us use duality with SAS 2013 abstraction
-            if(quantify_arrays())
-              flush_add_rules();
             break;
         default:
             UNREACHABLE();
@@ -889,13 +856,11 @@ namespace datalog {
     lbool context::query_from_lvl (expr* query, unsigned lvl) {
         m_mc = mk_skip_model_converter();
         m_last_status = OK;
-        m_last_answer = 0;
-        m_last_ground_answer = 0;
+        m_last_answer = nullptr;
+        m_last_ground_answer = nullptr;
         switch (get_engine()) {
         case DATALOG_ENGINE:
         case SPACER_ENGINE:
-        case PDR_ENGINE:
-        case QPDR_ENGINE:
         case BMC_ENGINE:
         case QBMC_ENGINE:
         case TAB_ENGINE:
@@ -932,7 +897,7 @@ namespace datalog {
     }
 
     lbool context::rel_query(unsigned num_rels, func_decl * const* rels) {        
-        m_last_answer = 0;
+        m_last_answer = nullptr;
         ensure_engine();
         return m_engine->query(num_rels, rels);
     }
@@ -1058,7 +1023,7 @@ namespace datalog {
         for (unsigned i = m_rule_fmls_head; i < m_rule_fmls.size(); ++i) {
             m_free_vars(m_rule_fmls[i].get());
             if (!m_free_vars.empty()) {
-                rm.mk_rule(m_rule_fmls[i].get(), 0, m_rule_set, m_rule_names[i]);
+                rm.mk_rule(m_rule_fmls[i].get(), nullptr, m_rule_set, m_rule_names[i]);
                 m_rule_fmls[i] = m_rule_fmls.back();
                 m_rule_names[i] = m_rule_names.back();
                 m_rule_fmls.pop_back();
@@ -1105,6 +1070,16 @@ namespace datalog {
             names.push_back(m_rule_names[i]);            
         }
     }
+
+    static std::ostream& display_symbol(std::ostream& out, symbol const& nm) {
+        if (is_smt2_quoted_symbol(nm)) {
+            out << mk_smt2_quoted_symbol(nm);
+        }
+        else {
+            out << nm;
+        }
+        return out;
+    }
  
     void context::display_smt2(unsigned num_queries, expr* const* qs, std::ostream& out) {
         ast_manager& m = get_manager();
@@ -1147,13 +1122,13 @@ namespace datalog {
         if (!use_fixedpoint_extensions) {
             out << "(set-logic HORN)\n";
         }
+        for (func_decl * f : rels) 
+            visitor.remove_decl(f);
 
         visitor.display_decls(out);
-        func_decl_set::iterator it = rels.begin(), end = rels.end();
-        for (; it != end; ++it) {
-            func_decl* f = *it;
+
+        for (func_decl * f : rels) 
             display_rel_decl(out, f);
-        }
 
         if (use_fixedpoint_extensions && do_declare_vars) {
             declare_vars(rules, fresh_names, out);
@@ -1184,13 +1159,7 @@ namespace datalog {
                     nm = symbol(s.str().c_str());                    
                 }
                 fresh_names.add(nm);
-                if (is_smt2_quoted_symbol(nm)) {
-                    out << mk_smt2_quoted_symbol(nm);
-                }
-                else {
-                    out << nm;
-                }
-                out << ")";
+                display_symbol(out, nm) << ")";
             }
             out << ")\n";
         }
@@ -1218,7 +1187,8 @@ namespace datalog {
                     PP(qfn);
                     out << ")\n";
                 }
-                out << "(query " << fn->get_name() << ")\n";
+                out << "(query ";
+                display_symbol(out, fn->get_name()) << ")\n";
             }
         }
         else {
@@ -1237,7 +1207,8 @@ namespace datalog {
 
     void context::display_rel_decl(std::ostream& out, func_decl* f) {
         smt2_pp_environment_dbg env(m);
-        out << "(declare-rel " << f->get_name() << " (";
+        out << "(declare-rel ";
+        display_symbol(out, f->get_name()) << " (";
         for (unsigned i = 0; i < f->get_arity(); ++i) {                
             ast_smt2_pp(out, f->get_domain(i), env);
             if (i + 1 < f->get_arity()) {

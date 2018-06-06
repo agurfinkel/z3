@@ -10,7 +10,6 @@ z3_add_component(fp
     ddnf
     duality_intf
     muz
-    pdr
     rel
     spacer
     tab

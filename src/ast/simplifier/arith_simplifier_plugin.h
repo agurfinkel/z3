@@ -17,10 +17,10 @@ Author:
 #ifndef ARITH_SIMPLIFIER_PLUGIN_H_
 #define ARITH_SIMPLIFIER_PLUGIN_H_
 
-#include "ast/simplifier/basic_simplifier_plugin.h"
-#include "ast/simplifier/poly_simplifier_plugin.h"
-#include "ast/arith_decl_plugin.h"
-#include "ast/simplifier/arith_simplifier_params.h"
+#include"basic_simplifier_plugin.h"
+#include"poly_simplifier_plugin.h"
+#include"arith_decl_plugin.h"
+#include"arith_simplifier_params.h"
 
 /**
    \brief Simplifier for the arith family.
@@ -48,6 +48,7 @@ protected:
 
     void div_monomial(expr_ref_vector& monomials, numeral const& g);
     void get_monomial_gcd(expr_ref_vector& monomials, numeral& g);
+    bool divides(expr* d, expr* n, expr_ref& quot);
 
 public:
     arith_simplifier_plugin(ast_manager & m, basic_simplifier_plugin & b, arith_simplifier_params & p);

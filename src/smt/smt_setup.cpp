@@ -53,7 +53,8 @@ namespace smt {
         //    warning_msg("ignoring MODEL_COMPACT=true because it cannot be used with MBQI=true");
         //    m_params.m_model_compact = false;
         // }
-        TRACE("setup", tout << "configuring logical context, logic: " << m_logic << "\n";);
+        TRACE("setup", tout << "configuring logical context, logic: " << m_logic << " " << cm << "\n";);
+        
         m_already_configured = true;
         
         switch (cm) {
@@ -124,6 +125,8 @@ namespace smt {
             setup_QF_FPBV();
         else if (m_logic == "QF_S")
             setup_QF_S();
+        else if (m_logic == "QF_DT")
+            setup_QF_DT();
         else
             setup_unknown();
     }
@@ -141,7 +144,9 @@ namespace smt {
         }
         else {
             IF_VERBOSE(100, verbose_stream() << "(smt.collecting-features)\n";);
-            st.collect(m_context.get_num_asserted_formulas(), m_context.get_asserted_formulas());
+            ptr_vector<expr> fmls;
+            m_context.get_asserted_formulas(fmls);
+            st.collect(fmls.size(), fmls.c_ptr());
             IF_VERBOSE(1000, st.display_primitive(verbose_stream()););
             if (m_logic == "QF_UF") 
                 setup_QF_UF(st);
@@ -187,6 +192,8 @@ namespace smt {
                 setup_AUFLIRA();
             else if (m_logic == "UFNIA")
                 setup_UFNIA();
+            else if (m_logic == "QF_DT")
+                setup_QF_DT();
             else if (m_logic == "LRA")
                 setup_LRA();
             else 
@@ -202,6 +209,14 @@ namespace smt {
     void setup::setup_QF_UF() {
         m_params.m_relevancy_lvl           = 0;
         m_params.m_nnf_cnf                 = false;
+        m_params.m_restart_strategy        = RS_LUBY;
+        m_params.m_phase_selection         = PS_CACHING_CONSERVATIVE2;
+        m_params.m_random_initial_activity = IA_RANDOM;
+    }
+
+    void setup::setup_QF_DT() {
+        setup_QF_UF();
+        setup_datatypes();
     }
 
     void setup::setup_QF_BVRE() {
@@ -210,13 +225,9 @@ namespace smt {
         m_context.register_plugin(alloc(theory_seq, m_manager));
     }
 
-    void setup::setup_QF_UF(static_features const & st) {
+    void setup::setup_QF_UF(static_features const & st) {        
         check_no_arithmetic(st, "QF_UF");
-        m_params.m_relevancy_lvl           = 0;
-        m_params.m_nnf_cnf                 = false;
-        m_params.m_restart_strategy        = RS_LUBY;
-        m_params.m_phase_selection         = PS_CACHING_CONSERVATIVE2;
-        m_params.m_random_initial_activity = IA_RANDOM;
+        setup_QF_UF();
         TRACE("setup",
               tout << "st.m_num_theories: " << st.m_num_theories << "\n";
               tout << "st.m_num_uninterpreted_functions: " << st.m_num_uninterpreted_functions << "\n";);
@@ -224,7 +235,7 @@ namespace smt {
 
     void setup::setup_QF_RDL() {
         m_params.m_relevancy_lvl       = 0;
-        m_params.m_arith_expand_eqs    = true;
+        m_params.m_arith_eq2ineq       = true;
         m_params.m_arith_reflect       = false;
         m_params.m_arith_propagate_eqs = false;
         m_params.m_nnf_cnf             = false;
@@ -264,7 +275,7 @@ namespace smt {
         TRACE("setup", tout << "setup_QF_RDL(st)\n";);
         check_no_uninterpreted_functions(st, "QF_RDL");
         m_params.m_relevancy_lvl       = 0;
-        m_params.m_arith_expand_eqs    = true;
+        m_params.m_arith_eq2ineq       = true;
         m_params.m_arith_reflect       = false;
         m_params.m_arith_propagate_eqs = false;
         m_params.m_nnf_cnf             = false;
@@ -316,7 +327,7 @@ namespace smt {
     void setup::setup_QF_IDL() {
         TRACE("setup", tout << "setup_QF_IDL()\n";);
         m_params.m_relevancy_lvl       = 0;
-        m_params.m_arith_expand_eqs    = true;
+        m_params.m_arith_eq2ineq       = true;
         m_params.m_arith_reflect       = false;
         m_params.m_arith_propagate_eqs = false;
         m_params.m_arith_small_lemma_size = 30;
@@ -334,7 +345,7 @@ namespace smt {
         TRACE("setup", tout << "setup_QF_IDL(st)\n";);
         check_no_uninterpreted_functions(st, "QF_IDL");
         m_params.m_relevancy_lvl       = 0;
-        m_params.m_arith_expand_eqs    = true;
+        m_params.m_arith_eq2ineq       = true;
         m_params.m_arith_reflect       = false;
         m_params.m_arith_propagate_eqs = false;
         m_params.m_arith_small_lemma_size = 30;
@@ -388,7 +399,7 @@ namespace smt {
         m_params.m_arith_reflect    = false;
         m_params.m_nnf_cnf          = false;
         m_params.m_arith_eq_bounds  = true;
-        m_params.m_arith_expand_eqs = true;
+        m_params.m_arith_eq2ineq    = true;
         m_params.m_phase_selection  = PS_ALWAYS_FALSE;
         m_params.m_restart_strategy = RS_GEOMETRIC;
         m_params.m_restart_factor   = 1.5;
@@ -404,8 +415,8 @@ namespace smt {
         m_params.m_arith_reflect    = false;
         m_params.m_nnf_cnf          = false;
         if (st.m_num_uninterpreted_functions == 0) {
-            m_params.m_arith_expand_eqs       = true;
-            m_params.m_arith_propagate_eqs    = false;
+            m_params.m_arith_eq2ineq        = true;
+            m_params.m_arith_propagate_eqs  = false;
             if (is_dense(st)) {
                 m_params.m_arith_small_lemma_size = 128;
                 m_params.m_lemma_gc_half          = true;
@@ -438,7 +449,7 @@ namespace smt {
     void setup::setup_QF_LRA() {
         TRACE("setup", tout << "setup_QF_LRA(st)\n";);
         m_params.m_relevancy_lvl       = 0;
-        m_params.m_arith_expand_eqs    = true;
+        m_params.m_arith_eq2ineq       = true;
         m_params.m_arith_reflect       = false;
         m_params.m_arith_propagate_eqs = false;
         m_params.m_eliminate_term_ite  = true;
@@ -449,7 +460,7 @@ namespace smt {
     void setup::setup_QF_LRA(static_features const & st) {
         check_no_uninterpreted_functions(st, "QF_LRA");
         m_params.m_relevancy_lvl       = 0;
-        m_params.m_arith_expand_eqs    = true;
+        m_params.m_arith_eq2ineq       = true;
         m_params.m_arith_reflect       = false;
         m_params.m_arith_propagate_eqs = false;
         m_params.m_eliminate_term_ite  = true;
@@ -478,7 +489,7 @@ namespace smt {
     void setup::setup_QF_LIA() {
         TRACE("setup", tout << "setup_QF_LIA(st)\n";);
         m_params.m_relevancy_lvl       = 0;
-        m_params.m_arith_expand_eqs    = true;
+        m_params.m_arith_eq2ineq       = true;
         m_params.m_arith_reflect       = false; 
         m_params.m_arith_propagate_eqs = false; 
         m_params.m_nnf_cnf             = false;
@@ -490,13 +501,13 @@ namespace smt {
         TRACE("setup", tout << "QF_LIA setup\n";);
 
         m_params.m_relevancy_lvl       = 0;
-        m_params.m_arith_expand_eqs    = true;
+        m_params.m_arith_eq2ineq       = true;
         m_params.m_arith_reflect       = false; 
         m_params.m_arith_propagate_eqs = false;
         m_params.m_nnf_cnf             = false;
         if (st.m_max_ite_tree_depth > 50) {
-            m_params.m_arith_expand_eqs     = false;
-            m_params.m_pull_cheap_ite_trees = true;
+            m_params.m_arith_eq2ineq        = false;
+            m_params.m_pull_cheap_ite       = true;
             m_params.m_arith_propagate_eqs  = true;
             m_params.m_relevancy_lvl        = 2; 
             m_params.m_relevancy_lemma      = false;
@@ -505,7 +516,7 @@ namespace smt {
             m_params.m_arith_gcd_test         = false;
             m_params.m_arith_branch_cut_ratio = 4;
             m_params.m_relevancy_lvl          = 2; 
-            m_params.m_arith_expand_eqs       = true;
+            m_params.m_arith_eq2ineq          = true;
             m_params.m_eliminate_term_ite     = true;
             // if (st.m_num_exprs < 5000 && st.m_num_ite_terms < 50) { // safeguard to avoid high memory consumption
             // TODO: implement analsysis function to decide where lift ite is too expensive.
@@ -548,6 +559,7 @@ namespace smt {
     }
 
     void setup::setup_QF_BV() {
+        TRACE("setup", tout << "qf-bv\n";);
         m_params.m_relevancy_lvl       = 0;
         m_params.m_arith_reflect       = false; 
         m_params.m_bv_cc               = false;
@@ -562,7 +574,6 @@ namespace smt {
         m_params.m_bv_cc               = false;
         m_params.m_bb_ext_gates        = true;
         m_params.m_nnf_cnf             = false;
-        m_params.m_propagate_booleans  = true;
         m_context.register_plugin(alloc(smt::theory_bv, m_manager, m_params, m_params));
         m_context.register_plugin(alloc(smt::theory_array, m_manager, m_params));
     }
@@ -631,7 +642,6 @@ namespace smt {
         m_params.m_restart_factor          = 1.5;
         m_params.m_eliminate_bounds        = true;
         m_params.m_qi_quick_checker        = MC_UNSAT;
-        m_params.m_propagate_booleans      = true;
         m_params.m_qi_lazy_threshold       = 20;
         // m_params.m_qi_max_eager_multipatterns = 10; /// <<< HACK
         m_params.m_mbqi                    = true; // enabling MBQI and MACRO_FINDER by default :-)
@@ -659,7 +669,6 @@ namespace smt {
         m_params.m_phase_selection         = PS_ALWAYS_FALSE;
         m_params.m_eliminate_bounds        = true;
         m_params.m_qi_quick_checker        = MC_UNSAT;
-        m_params.m_propagate_booleans      = true;
         m_params.m_qi_eager_threshold      = 5;
         // Added for MBQI release
         m_params.m_qi_lazy_threshold       = 20;
@@ -720,12 +729,11 @@ namespace smt {
     }
 
     void setup::setup_i_arith() {
-        m_context.register_plugin(alloc(smt::theory_i_arith, m_manager, m_params));        
+        m_context.register_plugin(alloc(smt::theory_lra, m_manager, m_params));
+        // m_context.register_plugin(alloc(smt::theory_i_arith, m_manager, m_params));        
     }
 
     void setup::setup_r_arith() {
-        // to disable theory lra
-        // m_context.register_plugin(alloc(smt::theory_mi_arith, m_manager, m_params));        
         m_context.register_plugin(alloc(smt::theory_lra, m_manager, m_params));
     }
 
@@ -741,7 +749,9 @@ namespace smt {
     void setup::setup_arith() {
         static_features    st(m_manager);
         IF_VERBOSE(100, verbose_stream() << "(smt.collecting-features)\n";);
-        st.collect(m_context.get_num_asserted_formulas(), m_context.get_asserted_formulas());
+        ptr_vector<expr> fmls;
+        m_context.get_asserted_formulas(fmls);
+        st.collect(fmls.size(), fmls.c_ptr());
         IF_VERBOSE(1000, st.display_primitive(verbose_stream()););
         bool fixnum = st.arith_k_sum_is_small() && m_params.m_arith_fixnum;
         bool int_only = !st.m_has_rational && !st.m_has_real && m_params.m_arith_int_only;
@@ -750,7 +760,7 @@ namespace smt {
             m_context.register_plugin(alloc(smt::theory_dummy, m_manager.mk_family_id("arith"), "no arithmetic"));
             break;
         case AS_DIFF_LOGIC:
-            m_params.m_arith_expand_eqs  = true;
+            m_params.m_arith_eq2ineq  = true;
             if (fixnum) {
                 if (int_only)
                     m_context.register_plugin(alloc(smt::theory_fidl, m_manager, m_params));
@@ -765,7 +775,7 @@ namespace smt {
             }
             break;
         case AS_DENSE_DIFF_LOGIC:
-            m_params.m_arith_expand_eqs  = true;
+            m_params.m_arith_eq2ineq  = true;
             if (fixnum) {
                 if (int_only)
                     m_context.register_plugin(alloc(smt::theory_dense_si, m_manager, m_params));
@@ -780,7 +790,7 @@ namespace smt {
             }
             break;
         case AS_UTVPI:
-            m_params.m_arith_expand_eqs  = true;
+            m_params.m_arith_eq2ineq  = true;
             if (int_only)
                 m_context.register_plugin(alloc(smt::theory_iutvpi, m_manager));
             else
@@ -788,6 +798,9 @@ namespace smt {
             break;
         case AS_OPTINF:
             m_context.register_plugin(alloc(smt::theory_inf_arith, m_manager, m_params));            
+            break;
+        case AS_LRA:
+            setup_r_arith();
             break;
         default:
             if (m_params.m_arith_int_only && int_only)
@@ -876,8 +889,10 @@ namespace smt {
 
     void setup::setup_unknown() {
         static_features st(m_manager);
-        st.collect(m_context.get_num_asserted_formulas(), m_context.get_asserted_formulas());
-
+        ptr_vector<expr> fmls;
+        m_context.get_asserted_formulas(fmls);
+        st.collect(fmls.size(), fmls.c_ptr());
+        TRACE("setup", tout << "setup_unknown\n";);        
         setup_arith();
         setup_arrays();
         setup_bv();
@@ -916,7 +931,7 @@ namespace smt {
               tout << "has fpa: " << st.m_has_fpa << "\n"; 
               tout << "has arrays: " << st.m_has_arrays << "\n";);
 
-        if (st.num_non_uf_theories() == 0) {
+        if (st.num_non_uf_theories() == 0) {           
             setup_QF_UF(st);
             return;
         }
@@ -952,7 +967,7 @@ namespace smt {
         if (st.num_theories() == 2 && st.has_uf() && is_arith(st)) {
             if (!st.m_has_real)
                 setup_QF_UFLIA(st);
-            else if (!st.m_has_int)
+            else if (!st.m_has_int && st.m_num_non_linear == 0)
                 setup_QF_UFLRA();
             else
                 setup_unknown();

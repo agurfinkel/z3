@@ -20,8 +20,6 @@ Revision History:
 #include "ast/macros/macro_util.h"
 #include "ast/occurs.h"
 #include "ast/ast_util.h"
-#include "ast/simplifier/arith_simplifier_plugin.h"
-#include "ast/simplifier/bv_simplifier_plugin.h"
 #include "ast/rewriter/var_subst.h"
 #include "ast/ast_pp.h"
 #include "ast/ast_ll_pp.h"
@@ -29,30 +27,14 @@ Revision History:
 #include "ast/well_sorted.h"
 #include "ast/rewriter/bool_rewriter.h"
 
-macro_util::macro_util(ast_manager & m, simplifier & s):
+macro_util::macro_util(ast_manager & m):
     m_manager(m),
     m_bv(m),
-    m_simplifier(s),
-    m_arith_simp(0),
-    m_bv_simp(0),
-    m_forbidden_set(0),
-    m_curr_clause(0) {
-}
-
-arith_simplifier_plugin * macro_util::get_arith_simp() const {
-    if (m_arith_simp == 0) {
-        const_cast<macro_util*>(this)->m_arith_simp = static_cast<arith_simplifier_plugin*>(m_simplifier.get_plugin(m_manager.mk_family_id("arith")));
-    }
-    SASSERT(m_arith_simp != 0);
-    return m_arith_simp;
-}
-
-bv_simplifier_plugin * macro_util::get_bv_simp() const {
-    if (m_bv_simp == 0) {
-        const_cast<macro_util*>(this)->m_bv_simp = static_cast<bv_simplifier_plugin*>(m_simplifier.get_plugin(m_manager.mk_family_id("bv")));
-    }
-    SASSERT(m_bv_simp != 0);
-    return m_bv_simp;
+    m_arith(m),
+    m_arith_rw(m),
+    m_bv_rw(m),
+    m_forbidden_set(nullptr),
+    m_curr_clause(nullptr) {
 }
 
 
@@ -65,60 +47,83 @@ bool macro_util::is_bv_sort(sort * s) const {
 }
 
 bool macro_util::is_add(expr * n) const {
-    return get_arith_simp()->is_add(n) || m_bv.is_bv_add(n);
+    return m_arith.is_add(n) || m_bv.is_bv_add(n);
 }
 
 bool macro_util::is_times_minus_one(expr * n, expr * & arg) const {
-    return get_arith_simp()->is_times_minus_one(n, arg) || get_bv_simp()->is_times_minus_one(n, arg);
+    return m_arith_rw.is_times_minus_one(n, arg) || m_bv_rw.is_times_minus_one(n, arg);
 }
 
 bool macro_util::is_le(expr * n) const {
-    return get_arith_simp()->is_le(n) || m_bv.is_bv_ule(n) || m_bv.is_bv_sle(n);
+    return m_arith.is_le(n) || m_bv.is_bv_ule(n) || m_bv.is_bv_sle(n);
 }
 
 bool macro_util::is_le_ge(expr * n) const {
-    return get_arith_simp()->is_le_ge(n) || m_bv.is_bv_ule(n) || m_bv.is_bv_sle(n);
+    return m_arith.is_ge(n) || m_arith.is_le(n) || m_bv.is_bv_ule(n) || m_bv.is_bv_sle(n);
 }
 
-poly_simplifier_plugin * macro_util::get_poly_simp_for(sort * s) const {
-    if (is_bv_sort(s))
-        return get_bv_simp();
-    else
-        return get_arith_simp();
+bool macro_util::is_var_plus_ground(expr * n, bool & inv, var * & v, expr_ref & t) {
+    return m_arith_rw.is_var_plus_ground(n, inv, v, t) || m_bv_rw.is_var_plus_ground(n, inv, v, t);
+}
+
+bool macro_util::is_zero_safe(expr * n) const {
+    if (m_bv_rw.is_bv(n)) {
+        return m_bv.is_zero(n);
+    }
+    else {
+        return m_arith_rw.is_zero(n);
+    }
 }
 
 app * macro_util::mk_zero(sort * s) const {
-    poly_simplifier_plugin * ps = get_poly_simp_for(s);
-    ps->set_curr_sort(s);
-    return ps->mk_zero();
+    if (m_bv.is_bv_sort(s)) {
+        return m_bv.mk_numeral(rational(0), s);
+    }
+    else {
+        return m_arith.mk_numeral(rational(0), s);
+    }
 }
 
 void macro_util::mk_sub(expr * t1, expr * t2, expr_ref & r) const {
     if (is_bv(t1)) {
-        r = m_bv.mk_bv_sub(t1, t2);
+        m_bv_rw.mk_sub(t1, t2, r);
     }
     else {
-        get_arith_simp()->mk_sub(t1, t2, r);
+        m_arith_rw.mk_sub(t1, t2, r);
     }
 }
 
 void macro_util::mk_add(expr * t1, expr * t2, expr_ref & r) const {
     if (is_bv(t1)) {
-        r = m_bv.mk_bv_add(t1, t2);
+        m_bv_rw.mk_add(t1, t2, r);
     }
     else {
-        get_arith_simp()->mk_add(t1, t2, r);
+        m_arith_rw.mk_add(t1, t2, r);
     }
 }
 
 void macro_util::mk_add(unsigned num_args, expr * const * args, sort * s, expr_ref & r) const {
-    if (num_args == 0) {
+    switch (num_args) {
+    case 0: 
         r = mk_zero(s);
-        return;
+        break;
+    case 1:
+        r = args[0];
+        break;
+    default:
+        if (m_bv.is_bv_sort(s)) {
+            r = args[0];
+            while (num_args >= 2) {
+                --num_args;
+                ++args;
+                r = m_bv.mk_bv_add(r, args[0]);
+            }
+        }
+        else {
+            r = m_arith.mk_add(num_args, args);
+        }
+        break;
     }
-    poly_simplifier_plugin * ps = get_poly_simp_for(s);
-    ps->set_curr_sort(s);
-    ps->mk_add(num_args, args, r);
 }
 
 /**
@@ -170,7 +175,7 @@ bool macro_util::is_macro_head(expr * n, unsigned num_decls) const {
 
 */
 bool macro_util::is_left_simple_macro(expr * n, unsigned num_decls, app_ref & head, expr_ref & def) const {
-    if (m_manager.is_eq(n) || m_manager.is_iff(n)) {
+    if (m_manager.is_eq(n)) {
         expr * lhs = to_app(n)->get_arg(0);
         expr * rhs = to_app(n)->get_arg(1);
         if (is_macro_head(lhs, num_decls) && !is_forbidden(to_app(lhs)->get_decl()) &&
@@ -202,7 +207,7 @@ bool macro_util::is_left_simple_macro(expr * n, unsigned num_decls, app_ref & he
 
 */
 bool macro_util::is_right_simple_macro(expr * n, unsigned num_decls, app_ref & head, expr_ref & def) const {
-    if (m_manager.is_eq(n) || m_manager.is_iff(n)) {
+    if (m_manager.is_eq(n)) {
         expr * lhs = to_app(n)->get_arg(0);
         expr * rhs = to_app(n)->get_arg(1);
         if (is_macro_head(rhs, num_decls) && !is_forbidden(to_app(rhs)->get_decl()) &&
@@ -241,18 +246,17 @@ bool macro_util::poly_contains_head(expr * n, func_decl * f, expr * exception) c
 
 bool macro_util::is_arith_macro(expr * n, unsigned num_decls, app_ref & head, expr_ref & def, bool & inv) const {
     // TODO: obsolete... we should move to collect_arith_macro_candidates
-    arith_simplifier_plugin * as = get_arith_simp();
-    if (!m_manager.is_eq(n) && !as->is_le(n) && !as->is_ge(n))
+    if (!m_manager.is_eq(n) && !m_arith.is_le(n) && !m_arith.is_ge(n))
         return false;
     expr * lhs = to_app(n)->get_arg(0);
     expr * rhs = to_app(n)->get_arg(1);
 
-    if (!as->is_numeral(rhs))
+    if (!m_arith.is_numeral(rhs))
         return false;
 
     inv = false;
     ptr_buffer<expr> args;
-    expr * h = 0;
+    expr * h = nullptr;
     unsigned lhs_num_args;
     expr * const * lhs_args;
     if (is_add(lhs)) {
@@ -266,13 +270,13 @@ bool macro_util::is_arith_macro(expr * n, unsigned num_decls, app_ref & head, ex
     for (unsigned i = 0; i < lhs_num_args; i++) {
         expr * arg = lhs_args[i];
         expr * neg_arg;
-        if (h == 0 &&
+        if (h == nullptr &&
             is_macro_head(arg, num_decls) &&
             !is_forbidden(to_app(arg)->get_decl()) &&
             !poly_contains_head(lhs, to_app(arg)->get_decl(), arg)) {
             h = arg;
         }
-        else if (h == 0 && as->is_times_minus_one(arg, neg_arg) &&
+        else if (h == nullptr && m_arith_rw.is_times_minus_one(arg, neg_arg) &&
                  is_macro_head(neg_arg, num_decls) &&
                  !is_forbidden(to_app(neg_arg)->get_decl()) &&
                  !poly_contains_head(lhs, to_app(neg_arg)->get_decl(), arg)) {
@@ -283,15 +287,16 @@ bool macro_util::is_arith_macro(expr * n, unsigned num_decls, app_ref & head, ex
             args.push_back(arg);
         }
     }
-    if (h == 0)
+    if (h == nullptr)
         return false;
     head = to_app(h);
     expr_ref tmp(m_manager);
-    as->mk_add(args.size(), args.c_ptr(), tmp);
+    tmp = m_arith.mk_add(args.size(), args.c_ptr());
     if (inv)
-        as->mk_sub(tmp, rhs, def);
+        mk_sub(tmp, rhs, def);
     else
-        as->mk_sub(rhs, tmp, def);
+        mk_sub(rhs, tmp, def);
+    TRACE("macro_util", tout << def << "\n";);
     return true;
 }
 
@@ -334,10 +339,9 @@ bool macro_util::is_pseudo_predicate_macro(expr * n, app_ref & head, app_ref & t
     TRACE("macro_util", tout << "processing: " << mk_pp(n, m_manager) << "\n";);
     expr * body        = to_quantifier(n)->get_expr();
     unsigned num_decls = to_quantifier(n)->get_num_decls();
-    if (!m_manager.is_iff(body))
+    expr * lhs, *rhs;
+    if (!m_manager.is_iff(body, lhs, rhs))
         return false;
-    expr * lhs = to_app(body)->get_arg(0);
-    expr * rhs = to_app(body)->get_arg(1);
     if (is_pseudo_head(lhs, num_decls, head, t) &&
         !is_forbidden(head->get_decl()) &&
         !occurs(head->get_decl(), rhs)) {
@@ -661,7 +665,7 @@ void macro_util::insert_macro(app * head, unsigned num_decls, expr * def, expr *
     expr_ref norm_def(m_manager);
     expr_ref norm_cond(m_manager);
     normalize_expr(head, num_decls, def, norm_def);
-    if (cond != 0)
+    if (cond != nullptr)
         normalize_expr(head, num_decls, cond, norm_cond);
     else if (!hint)
         norm_cond = m_manager.mk_true();
@@ -677,7 +681,7 @@ void macro_util::insert_quasi_macro(app * head, unsigned num_decls, expr * def, 
         expr_ref new_cond(m_manager);
         if (!hint) {
             quasi_macro_head_to_macro_head(head, num_decls, new_head, extra_cond);
-            if (cond == 0)
+            if (cond == nullptr)
                 new_cond = extra_cond;
             else
                 bool_rewriter(m_manager).mk_and(cond, extra_cond, new_cond);
@@ -696,7 +700,7 @@ void macro_util::insert_quasi_macro(app * head, unsigned num_decls, expr * def, 
 }
 
 bool macro_util::rest_contains_decl(func_decl * f, expr * except_lit) {
-    if (m_curr_clause == 0)
+    if (m_curr_clause == nullptr)
         return false;
     SASSERT(is_clause(m_manager, m_curr_clause));
     unsigned num_lits = get_clause_num_literals(m_manager, m_curr_clause);
@@ -709,7 +713,7 @@ bool macro_util::rest_contains_decl(func_decl * f, expr * except_lit) {
 }
 
 void macro_util::get_rest_clause_as_cond(expr * except_lit, expr_ref & extra_cond) {
-    if (m_curr_clause == 0)
+    if (m_curr_clause == nullptr)
         return;
     SASSERT(is_clause(m_manager, m_curr_clause));
     expr_ref_buffer neg_other_lits(m_manager);
@@ -790,7 +794,7 @@ void macro_util::collect_arith_macro_candidates(expr * lhs, expr * rhs, expr * a
             mk_sub(rhs, rest, def);
             // If is_poly_hint, rhs may contain variables that do not occur in to_app(arg).
             // So, we should re-check.
-            if (!_is_poly_hint || is_poly_hint(def, to_app(arg), 0))
+            if (!_is_poly_hint || is_poly_hint(def, to_app(arg), nullptr))
                 add_arith_macro_candidate(to_app(arg), num_decls, def, atom, is_ineq, _is_poly_hint, r);
         }
         else if (is_times_minus_one(arg, neg_arg) && is_app(neg_arg)) {
@@ -811,7 +815,7 @@ void macro_util::collect_arith_macro_candidates(expr * lhs, expr * rhs, expr * a
                 mk_sub(rest, rhs, def);
                 // If is_poly_hint, rhs may contain variables that do not occur in to_app(neg_arg).
                 // So, we should re-check.
-                if (!_is_poly_hint || is_poly_hint(def, to_app(neg_arg), 0))
+                if (!_is_poly_hint || is_poly_hint(def, to_app(neg_arg), nullptr))
                     add_arith_macro_candidate(to_app(neg_arg), num_decls, def, atom, is_ineq, _is_poly_hint, r);
             }
         }
@@ -880,7 +884,7 @@ void macro_util::collect_macro_candidates_core(expr * atom, unsigned num_decls, 
             insert_quasi_macro(to_app(lhs), num_decls, rhs, cond, false, true, false, r);
         }
         else if (is_hint_atom(lhs, rhs)) {
-            insert_quasi_macro(to_app(lhs), num_decls, rhs, 0, false, true, true, r);
+            insert_quasi_macro(to_app(lhs), num_decls, rhs, nullptr, false, true, true, r);
         }
 
         if (is_quasi_macro_head(rhs, num_decls) &&
@@ -892,7 +896,7 @@ void macro_util::collect_macro_candidates_core(expr * atom, unsigned num_decls, 
             insert_quasi_macro(to_app(rhs), num_decls, lhs, cond, false, true, false, r);
         }
         else if (is_hint_atom(rhs, lhs)) {
-            insert_quasi_macro(to_app(rhs), num_decls, lhs, 0, false, true, true, r);
+            insert_quasi_macro(to_app(rhs), num_decls, lhs, nullptr, false, true, true, r);
         }
     }
 
@@ -900,7 +904,7 @@ void macro_util::collect_macro_candidates_core(expr * atom, unsigned num_decls, 
 }
 
 void macro_util::collect_macro_candidates(expr * atom, unsigned num_decls, macro_candidates & r) {
-    m_curr_clause = 0;
+    m_curr_clause = nullptr;
     r.reset();
     collect_macro_candidates_core(atom, num_decls, r);
 }
@@ -917,7 +921,7 @@ void macro_util::collect_macro_candidates(quantifier * q, macro_candidates & r) 
         unsigned num_lits = get_clause_num_literals(m_manager, n);
         for (unsigned i = 0; i < num_lits; i++)
             collect_macro_candidates_core(get_clause_literal(m_manager, n, i), num_decls, r);
-        m_curr_clause = 0;
+        m_curr_clause = nullptr;
     }
     else {
         collect_macro_candidates_core(n, num_decls, r);

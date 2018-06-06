@@ -17,7 +17,7 @@ Notes:
 
 --*/
 #include "ast/rewriter/bool_rewriter.h"
-#include"bool_rewriter_params.hpp"
+#include "ast/rewriter/bool_rewriter_params.hpp"
 #include "ast/rewriter/rewriter_def.h"
 
 void bool_rewriter::updt_params(params_ref const & _p) {
@@ -39,7 +39,6 @@ br_status bool_rewriter::mk_app_core(func_decl * f, unsigned num_args, expr * co
     SASSERT(f->get_family_id() == m().get_basic_family_id());
     switch (f->get_decl_kind()) {
     case OP_EQ:
-    case OP_IFF:
         SASSERT(num_args == 2);
         return mk_eq_core(args[0], args[1], result);
     case OP_DISTINCT:
@@ -428,7 +427,7 @@ bool bool_rewriter::simp_nested_eq_ite(expr * t, expr_fast_mark1 & neg_lits, exp
         neg = true;
         t = to_app(t)->get_arg(0);
     }
-    if (m().is_iff(t) || m().is_eq(t)) {
+    if (m().is_eq(t)) {
         bool modified = false;
         expr * new_lhs = simp_arg(to_app(t)->get_arg(0), neg_lits, pos_lits, modified);
         expr * new_rhs = simp_arg(to_app(t)->get_arg(1), neg_lits, pos_lits, modified);
@@ -585,7 +584,7 @@ bool bool_rewriter::local_ctx_simp(unsigned num_args, expr * const * args, expr_
 
 */
 br_status bool_rewriter::try_ite_value(app * ite, app * val, expr_ref & result) {
-    expr* cond = 0, *t = 0, *e = 0;
+    expr* cond = nullptr, *t = nullptr, *e = nullptr;
     VERIFY(m().is_ite(ite, cond, t, e));
     SASSERT(m().is_value(val));
 
@@ -629,61 +628,23 @@ br_status bool_rewriter::try_ite_value(app * ite, app * val, expr_ref & result) 
             return BR_REWRITE2;
         }
     }
-    expr* cond2, *t2, *e2;
-    if (m().is_ite(t, cond2, t2, e2) && m().is_value(t2) && m().is_value(e2)) {
-        try_ite_value(to_app(t), val, result);
-        result = m().mk_ite(cond, result, m().mk_eq(e, val));
-        return BR_REWRITE2;
-    }
-    if (m().is_ite(e, cond2, t2, e2) && m().is_value(t2) && m().is_value(e2)) {
-        try_ite_value(to_app(e), val, result);
-        result = m().mk_ite(cond, m().mk_eq(t, val), result);
-        return BR_REWRITE2;
+    {
+        expr* cond2, *t2, *e2;
+        if (m().is_ite(t, cond2, t2, e2) && m().is_value(t2) && m().is_value(e2)) {
+            try_ite_value(to_app(t), val, result);
+            result = m().mk_ite(cond, result, m().mk_eq(e, val));
+            return BR_REWRITE2;
+        }
+        if (m().is_ite(e, cond2, t2, e2) && m().is_value(t2) && m().is_value(e2)) {
+            try_ite_value(to_app(e), val, result);
+            result = m().mk_ite(cond, m().mk_eq(t, val), result);
+            return BR_REWRITE2;
+        }
     }
 
     return BR_FAILED;
 }
 
-#if 0
-// Return true if ite is an if-then-else tree where the leaves are values,
-// and they are all different from val
-static bool is_ite_value_tree_neq_value(ast_manager & m, app * ite, app * val) {
-    SASSERT(m.is_ite(ite));
-    SASSERT(m.is_value(val));
-
-    expr_fast_mark1 visited;
-    ptr_buffer<app> todo;
-    todo.push_back(ite);
-
-#define VISIT(ARG) {                                            \
-        if (m.is_value(ARG)) {                                  \
-            if (ARG == val)                                     \
-                return false;                                   \
-        }                                                       \
-        else if (m.is_ite(ARG)) {                               \
-            if (!visited.is_marked(ARG)) {                      \
-                visited.mark(ARG);                              \
-                todo.push_back(to_app(ARG));                    \
-            }                                                   \
-        }                                                       \
-        else {                                                  \
-            return false;                                       \
-        }                                                       \
-    }
-
-    while (!todo.empty()) {
-        app * ite = todo.back();
-        todo.pop_back();
-        SASSERT(m.is_ite(ite));
-        expr * t = ite->get_arg(1);
-        expr * e = ite->get_arg(2);
-        VISIT(t);
-        VISIT(e);
-    }
-
-    return true;
-}
-#endif
 
 br_status bool_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) {
     if (m().are_equal(lhs, rhs)) {
@@ -697,26 +658,20 @@ br_status bool_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) {
     }
 
     br_status r = BR_FAILED;
+    
     if (m().is_ite(lhs) && m().is_value(rhs)) {
-        // if (is_ite_value_tree_neq_value(m(), to_app(lhs), to_app(rhs))) {
-        //    result = m().mk_false();
-        //    return BR_DONE;
-        // }
         r = try_ite_value(to_app(lhs), to_app(rhs), result);
         CTRACE("try_ite_value", r != BR_FAILED,
-               tout << mk_ismt2_pp(lhs, m()) << "\n" << mk_ismt2_pp(rhs, m()) << "\n--->\n" << mk_ismt2_pp(result, m()) << "\n";);
+               tout << mk_bounded_pp(lhs, m()) << "\n" << mk_bounded_pp(rhs, m()) << "\n--->\n" << mk_bounded_pp(result, m()) << "\n";);
     }
     else if (m().is_ite(rhs) && m().is_value(lhs)) {
-        // if (is_ite_value_tree_neq_value(m(), to_app(rhs), to_app(lhs))) {
-        //    result = m().mk_false();
-        //    return BR_DONE;
-        // }
         r = try_ite_value(to_app(rhs), to_app(lhs), result);
         CTRACE("try_ite_value", r != BR_FAILED,
-               tout << mk_ismt2_pp(lhs, m()) << "\n" << mk_ismt2_pp(rhs, m()) << "\n--->\n" << mk_ismt2_pp(result, m()) << "\n";);
+               tout << mk_bounded_pp(lhs, m()) << "\n" << mk_bounded_pp(rhs, m()) << "\n--->\n" << mk_bounded_pp(result, m()) << "\n";);
     }
     if (r != BR_FAILED)
         return r;
+    
 
     if (m().is_bool(lhs)) {
         bool unfolded = false;
@@ -752,7 +707,7 @@ br_status bool_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) {
 
         expr *la, *lb, *ra, *rb;
         // fold (iff (iff a b) (iff (not a) b)) to false
-        if (m().is_iff(lhs, la, lb) && m().is_iff(rhs, ra, rb)) {
+        if (m().is_eq(lhs, la, lb) && m().is_eq(rhs, ra, rb)) {
             expr *n;
             if ((la == ra && ((m().is_not(rb, n) && n == lb) ||
                 (m().is_not(lb, n) && n == rb))) ||

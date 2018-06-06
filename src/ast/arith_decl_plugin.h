@@ -70,12 +70,7 @@ enum arith_op_kind {
     OP_PI,
     OP_E,
     // under-specified symbols
-    OP_0_PW_0_INT,    // 0^0 for integers
-    OP_0_PW_0_REAL,   // 0^0 for reals
     OP_NEG_ROOT,      // x^n when n is even and x is negative
-    OP_DIV_0,         // x/0
-    OP_IDIV_0,        // x div 0
-    OP_MOD_0,         // x mod 0
     OP_U_ASIN,        // asin(x) for x < -1 or x > 1
     OP_U_ACOS,        // acos(x) for x < -1 or x > 1
     LAST_ARITH_OP
@@ -141,12 +136,7 @@ protected:
     app       * m_pi;
     app       * m_e;
 
-    app       * m_0_pw_0_int;
-    app       * m_0_pw_0_real;
     func_decl * m_neg_root_decl;
-    func_decl * m_div_0_decl;
-    func_decl * m_idiv_0_decl;
-    func_decl * m_mod_0_decl;
     func_decl * m_u_asin_decl;
     func_decl * m_u_acos_decl;
     ptr_vector<app> m_small_ints;
@@ -155,7 +145,7 @@ protected:
     bool        m_convert_int_numerals_to_real;
 
     func_decl * mk_func_decl(decl_kind k, bool is_real);
-    virtual void set_manager(ast_manager * m, family_id id);
+    void set_manager(ast_manager * m, family_id id) override;
     decl_kind fix_kind(decl_kind k, unsigned arity);
     void check_arity(unsigned arity, unsigned expected_arity);
     func_decl * mk_num_decl(unsigned num_parameters, parameter const * parameters, unsigned arity);
@@ -163,38 +153,38 @@ protected:
 public:
     arith_decl_plugin();
 
-    virtual ~arith_decl_plugin();
-    virtual void finalize();
+    ~arith_decl_plugin() override;
+    void finalize() override;
 
     algebraic_numbers::manager & am() const;
     algebraic_numbers_wrapper & aw() const;
 
-    virtual void del(parameter const & p);
-    virtual parameter translate(parameter const & p, decl_plugin & target);
+    void del(parameter const & p) override;
+    parameter translate(parameter const & p, decl_plugin & target) override;
 
-    virtual decl_plugin * mk_fresh() {
+    decl_plugin * mk_fresh() override {
         return alloc(arith_decl_plugin);
     }
 
-    virtual sort * mk_sort(decl_kind k, unsigned num_parameters, parameter const * parameters);
+    sort * mk_sort(decl_kind k, unsigned num_parameters, parameter const * parameters) override;
 
-    virtual func_decl * mk_func_decl(decl_kind k, unsigned num_parameters, parameter const * parameters,
-                                     unsigned arity, sort * const * domain, sort * range);
+    func_decl * mk_func_decl(decl_kind k, unsigned num_parameters, parameter const * parameters,
+                             unsigned arity, sort * const * domain, sort * range) override;
 
-    virtual func_decl * mk_func_decl(decl_kind k, unsigned num_parameters, parameter const * parameters,
-                                     unsigned num_args, expr * const * args, sort * range);
+    func_decl * mk_func_decl(decl_kind k, unsigned num_parameters, parameter const * parameters,
+                             unsigned num_args, expr * const * args, sort * range) override;
 
-    virtual bool is_value(app * e) const;
+    bool is_value(app * e) const override;
 
-    virtual bool is_unique_value(app * e) const;
+    bool is_unique_value(app * e) const override;
 
-    virtual bool are_equal(app * a, app * b) const;
+    bool are_equal(app * a, app * b) const override;
 
-    virtual bool are_distinct(app * a, app * b) const;
+    bool are_distinct(app * a, app * b) const override;
 
-    virtual void get_op_names(svector<builtin_name> & op_names, symbol const & logic);
+    void get_op_names(svector<builtin_name> & op_names, symbol const & logic) override;
 
-    virtual void get_sort_names(svector<builtin_name> & sort_names, symbol const & logic);
+    void get_sort_names(svector<builtin_name> & sort_names, symbol const & logic) override;
 
     app * mk_numeral(rational const & n, bool is_int);
 
@@ -207,23 +197,14 @@ public:
 
     app * mk_e() const { return m_e; }
 
-    app * mk_0_pw_0_int() const { return m_0_pw_0_int; }
+    expr * get_some_value(sort * s) override;
 
-    app * mk_0_pw_0_real() const { return m_0_pw_0_real; }
-
-    virtual expr * get_some_value(sort * s);
-
-    virtual bool is_considered_uninterpreted(func_decl * f) {
+    bool is_considered_uninterpreted(func_decl * f) override {
         if (f->get_family_id() != get_family_id())
             return false;
         switch (f->get_decl_kind())
         {
-        case OP_0_PW_0_INT:
-        case OP_0_PW_0_REAL:
         case OP_NEG_ROOT:
-        case OP_DIV_0:
-        case OP_IDIV_0:
-        case OP_MOD_0:
         case OP_U_ASIN:
         case OP_U_ACOS:
             return true;
@@ -263,6 +244,8 @@ public:
         return false;
     }
 
+    bool is_int_expr(expr const * e) const;
+
     bool is_le(expr const * n) const { return is_app_of(n, m_afid, OP_LE); }
     bool is_ge(expr const * n) const { return is_app_of(n, m_afid, OP_GE); }
     bool is_lt(expr const * n) const { return is_app_of(n, m_afid, OP_LT); }
@@ -276,9 +259,9 @@ public:
     bool is_uminus(expr const * n) const { return is_app_of(n, m_afid, OP_UMINUS); }
     bool is_mul(expr const * n) const { return is_app_of(n, m_afid, OP_MUL); }
     bool is_div(expr const * n) const { return is_app_of(n, m_afid, OP_DIV); }
-    bool is_div0(expr const * n) const { return is_app_of(n, m_afid, OP_DIV_0); }
+    //bool is_div0(expr const * n) const { return is_app_of(n, m_afid, OP_DIV_0); }
     bool is_idiv(expr const * n) const { return is_app_of(n, m_afid, OP_IDIV); }
-    bool is_idiv0(expr const * n) const { return is_app_of(n, m_afid, OP_IDIV_0); }
+    //bool is_idiv0(expr const * n) const { return is_app_of(n, m_afid, OP_IDIV_0); }
     bool is_mod(expr const * n) const { return is_app_of(n, m_afid, OP_MOD); }
     bool is_rem(expr const * n) const { return is_app_of(n, m_afid, OP_REM); }
     bool is_to_real(expr const * n) const { return is_app_of(n, m_afid, OP_TO_REAL); }
@@ -389,16 +372,16 @@ public:
     app * mk_lt(expr * arg1, expr * arg2) const { return m_manager.mk_app(m_afid, OP_LT, arg1, arg2); }
     app * mk_gt(expr * arg1, expr * arg2) const { return m_manager.mk_app(m_afid, OP_GT, arg1, arg2); }
 
-    app * mk_add(unsigned num_args, expr * const * args) { return m_manager.mk_app(m_afid, OP_ADD, num_args, args); }
-    app * mk_add(expr * arg1, expr * arg2) { return m_manager.mk_app(m_afid, OP_ADD, arg1, arg2); }
-    app * mk_add(expr * arg1, expr * arg2, expr* arg3) { return m_manager.mk_app(m_afid, OP_ADD, arg1, arg2, arg3); }
+    app * mk_add(unsigned num_args, expr * const * args) const { return num_args == 1 && is_app(args[0]) ? to_app(args[0]) : m_manager.mk_app(m_afid, OP_ADD, num_args, args); }
+    app * mk_add(expr * arg1, expr * arg2) const { return m_manager.mk_app(m_afid, OP_ADD, arg1, arg2); }
+    app * mk_add(expr * arg1, expr * arg2, expr* arg3) const { return m_manager.mk_app(m_afid, OP_ADD, arg1, arg2, arg3); }
 
-    app * mk_sub(expr * arg1, expr * arg2) { return m_manager.mk_app(m_afid, OP_SUB, arg1, arg2); }
-    app * mk_sub(unsigned num_args, expr * const * args) { return m_manager.mk_app(m_afid, OP_SUB, num_args, args); }
-    app * mk_mul(expr * arg1, expr * arg2) { return m_manager.mk_app(m_afid, OP_MUL, arg1, arg2); }
-    app * mk_mul(expr * arg1, expr * arg2, expr* arg3) { return m_manager.mk_app(m_afid, OP_MUL, arg1, arg2, arg3); }
-    app * mk_mul(unsigned num_args, expr * const * args) { return m_manager.mk_app(m_afid, OP_MUL, num_args, args); }
-    app * mk_uminus(expr * arg) { return m_manager.mk_app(m_afid, OP_UMINUS, arg); }
+    app * mk_sub(expr * arg1, expr * arg2) const { return m_manager.mk_app(m_afid, OP_SUB, arg1, arg2); }
+    app * mk_sub(unsigned num_args, expr * const * args) const { return m_manager.mk_app(m_afid, OP_SUB, num_args, args); }
+    app * mk_mul(expr * arg1, expr * arg2) const { return m_manager.mk_app(m_afid, OP_MUL, arg1, arg2); }
+    app * mk_mul(expr * arg1, expr * arg2, expr* arg3) const { return m_manager.mk_app(m_afid, OP_MUL, arg1, arg2, arg3); }
+    app * mk_mul(unsigned num_args, expr * const * args) const { return num_args == 1 && is_app(args[0]) ? to_app(args[0]) : m_manager.mk_app(m_afid, OP_MUL, num_args, args); }
+    app * mk_uminus(expr * arg) const { return m_manager.mk_app(m_afid, OP_UMINUS, arg); }
     app * mk_div(expr * arg1, expr * arg2) { return m_manager.mk_app(m_afid, OP_DIV, arg1, arg2); }
     app * mk_idiv(expr * arg1, expr * arg2) { return m_manager.mk_app(m_afid, OP_IDIV, arg1, arg2); }
     app * mk_rem(expr * arg1, expr * arg2) { return m_manager.mk_app(m_afid, OP_REM, arg1, arg2); }
@@ -425,11 +408,6 @@ public:
     app * mk_pi() { return plugin().mk_pi(); }
     app * mk_e()  { return plugin().mk_e(); }
 
-    app * mk_0_pw_0_int() { return plugin().mk_0_pw_0_int(); }
-    app * mk_0_pw_0_real() { return plugin().mk_0_pw_0_real(); }
-    app * mk_div0(expr * arg) { return m_manager.mk_app(m_afid, OP_DIV_0, arg); }
-    app * mk_idiv0(expr * arg) { return m_manager.mk_app(m_afid, OP_IDIV_0, arg); }
-    app * mk_mod0(expr * arg) { return m_manager.mk_app(m_afid, OP_MOD_0, arg); }
     app * mk_neg_root(expr * arg1, expr * arg2) { return m_manager.mk_app(m_afid, OP_NEG_ROOT, arg1, arg2); }
     app * mk_u_asin(expr * arg) { return m_manager.mk_app(m_afid, OP_U_ASIN, arg); }
     app * mk_u_acos(expr * arg) { return m_manager.mk_app(m_afid, OP_U_ACOS, arg); }
@@ -557,4 +535,3 @@ inline app_ref operator>(app_ref const& x, app_ref const& y) {
 }
 
 #endif /* ARITH_DECL_PLUGIN_H_ */
-

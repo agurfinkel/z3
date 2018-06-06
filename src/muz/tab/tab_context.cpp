@@ -30,7 +30,7 @@ Revision History:
 #include "ast/for_each_expr.h"
 #include "ast/substitution/matcher.h"
 #include "ast/scoped_proof.h"
-#include "fixedpoint_params.hpp"
+#include "muz/base/fixedpoint_params.hpp"
 #include "ast/ast_util.h"
 
 namespace tb {
@@ -1129,7 +1129,7 @@ namespace tb {
                 }
                 else {
                     change = true;
-                    m_rename.push_back(0);
+                    m_rename.push_back(nullptr);
                 }
             }
             if (change) {
@@ -1602,7 +1602,7 @@ namespace datalog {
 
             pc.invert();
             prs.push_back(m.mk_asserted(root));
-            pc(m, 1, prs.c_ptr(), pr);
+            pr = pc(m, 1, prs.c_ptr());
             return pr;
         }
 

@@ -26,7 +26,7 @@ Implementation:
 
     1) Dealing with multiple quantifiers -> The options fixedpoint.xform.instantiate_arrays.nb_quantifier gives the number of quantifiers per array.
 
-    2) Inforcing the instantiation -> We suggest an option (enforce_instantiation) to enforce this abstraction. This transforms
+    2) Enforcing the instantiation -> We suggest an option (enforce_instantiation) to enforce this abstraction. This transforms
        P(a) into P(i, a[i]). This enforces the solver to limit the space search at the cost of imprecise results. This option
        corresponds to fixedpoint.xform.instantiate_arrays.enforce
 
@@ -70,8 +70,8 @@ Revision History:
 #define DL_MK_ARRAY_INSTANTIATION_H_
 
 
-#include "dl_rule_transformer.h"
-#include "../spacer/obj_equiv_class.h"
+#include "ast/factor_equivs.h"
+#include "muz/base/dl_rule_transformer.h"
 
 namespace datalog {
 
@@ -89,7 +89,7 @@ namespace datalog {
 
        //Rule context
        obj_map<expr, ptr_vector<expr> > selects;
-        spacer::expr_equiv_class eq_classes;
+       expr_equiv_class eq_classes;
        unsigned cnt;//Index for new variables
        obj_map<expr, var*> done_selects;
        expr_ref_vector ownership;
@@ -112,8 +112,8 @@ namespace datalog {
        expr_ref_vector getId(app*old_pred, const expr_ref_vector& new_args);
      public:
         mk_array_instantiation(context & ctx, unsigned priority);
-        rule_set * operator()(rule_set const & source);
-        virtual ~mk_array_instantiation(){}
+        rule_set * operator()(rule_set const & source) override;
+        ~mk_array_instantiation() override{}
     };
 
 

@@ -140,8 +140,8 @@ struct size_t_hash {
 };
 
 struct uint64_hash {
-    typedef uint64 data;
-    unsigned operator()(uint64 x) const { return static_cast<unsigned>(x); }
+    typedef uint64_t data;
+    unsigned operator()(uint64_t x) const { return static_cast<unsigned>(x); }
 };
 
 struct bool_hash {
@@ -236,7 +236,7 @@ template<typename T>
 struct ptr_hash {
     typedef T * data;
     unsigned operator()(T * ptr) const { 
-	return get_ptr_hash(ptr);
+        return get_ptr_hash(ptr);
     }
 };
 

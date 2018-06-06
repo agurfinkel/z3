@@ -31,7 +31,7 @@
 #include "interp/iz3interp.h"
 #include "interp/iz3checker.h"
 #include "interp/iz3profiling.h"
-#include"interp_params.hpp"
+#include "interp/interp_params.hpp"
 #include "ast/scoped_proof.h"
 
 static void show_interpolant_and_maybe_check(cmd_context & ctx,
@@ -117,7 +117,7 @@ static void get_interpolant_and_maybe_check(cmd_context & ctx, expr * t, params_
     ptr_vector<ast> interps;
  
     try {
-        iz3interpolate(ctx.m(),pr.get(),cnsts,t,interps,0);
+        iz3interpolate(ctx.m(),pr.get(),cnsts,t,interps,nullptr);
     }
     catch (iz3_bad_tree &) {
         throw cmd_exception("interpolation pattern contains non-asserted formula");
@@ -147,7 +147,7 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, par
     ast_manager &_m = ctx.m();
     // TODO: the following is a HACK to enable proofs in the old smt solver
     // When we stop using that solver, this hack can be removed
-    scoped_proof_mode spm(_m,PGM_FINE);
+    scoped_proof_mode spm(_m,PGM_ENABLED);
     ctx.params().get_solver_params(_m, p, proofs_enabled, models_enabled, unsat_core_enabled);
     p.set_bool("proof", true);
     scoped_ptr<solver> sp = (ctx.get_interpolating_solver_factory())(_m, p, true, models_enabled, false, ctx.get_logic());
@@ -160,7 +160,7 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, par
   
     lbool res;
     try {
-        res = iz3interpolate(_m, *sp.get(), t, cnsts, interps, m, 0);
+        res = iz3interpolate(_m, *sp.get(), t, cnsts, interps, m, nullptr);
     }
     catch (iz3_incompleteness &) {
         throw cmd_exception("incompleteness in interpolator");
@@ -219,29 +219,29 @@ protected:
 public:
     get_interpolant_cmd(char const * name = "get-interpolant"):parametric_cmd(name) {}
 
-    virtual char const * get_usage() const { return "<fmla>+"; }
+    char const * get_usage() const override { return "<fmla>+"; }
 
-    virtual char const * get_main_descr() const { 
+    char const * get_main_descr() const override {
         return "get interpolant for formulas";
     }
     
-    virtual void init_pdescrs(cmd_context & ctx, param_descrs & p) {
+    void init_pdescrs(cmd_context & ctx, param_descrs & p) override {
     }
     
-    virtual void prepare(cmd_context & ctx) { 
+    void prepare(cmd_context & ctx) override {
         parametric_cmd::prepare(ctx);
         m_targets.resize(0);
     }
 
-    virtual cmd_arg_kind next_arg_kind(cmd_context & ctx) const {
+    cmd_arg_kind next_arg_kind(cmd_context & ctx) const override {
         return CPK_EXPR;
     }
     
-    virtual void set_next_arg(cmd_context & ctx, expr * arg) {
+    void set_next_arg(cmd_context & ctx, expr * arg) override {
         m_targets.push_back(arg);
     }
     
-    virtual void execute(cmd_context & ctx) {
+    void execute(cmd_context & ctx) override {
         get_interpolant(ctx,m_targets,m_params);
     }
 };
@@ -250,7 +250,7 @@ class compute_interpolant_cmd : public get_interpolant_cmd {
 public:
     compute_interpolant_cmd(char const * name = "compute-interpolant"):get_interpolant_cmd(name) {}
 
-    virtual void execute(cmd_context & ctx) {      
+    void execute(cmd_context & ctx) override {
         compute_interpolant(ctx,m_targets,m_params);
     }
 

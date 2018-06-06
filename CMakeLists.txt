@@ -33,8 +33,8 @@ endif()
 # Project version
 ################################################################################
 set(Z3_VERSION_MAJOR 4)
-set(Z3_VERSION_MINOR 5)
-set(Z3_VERSION_PATCH 1)
+set(Z3_VERSION_MINOR 8)
+set(Z3_VERSION_PATCH 0)
 set(Z3_VERSION_TWEAK 0)
 set(Z3_VERSION "${Z3_VERSION_MAJOR}.${Z3_VERSION_MINOR}.${Z3_VERSION_PATCH}.${Z3_VERSION_TWEAK}")
 set(Z3_FULL_VERSION_STR "${Z3_VERSION}") # Note this might be modified
@@ -234,22 +234,21 @@ if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
   if ("${TARGET_ARCHITECTURE}" STREQUAL "x86_64")
     list(APPEND Z3_COMPONENT_CXX_DEFINES "-D_USE_THREAD_LOCAL")
   endif()
-  z3_add_cxx_flag("-fno-strict-aliasing" REQUIRED)
 elseif ("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
   # Does OSX really not need any special flags?
   message(STATUS "Platform: Darwin")
 elseif ("${CMAKE_SYSTEM_NAME}" MATCHES "FreeBSD")
   message(STATUS "Platform: FreeBSD")
   list(APPEND Z3_COMPONENT_CXX_DEFINES "-D_FREEBSD_")
-  z3_add_cxx_flag("-fno-strict-aliasing" REQUIRED)
+elseif ("${CMAKE_SYSTEM_NAME}" MATCHES "NetBSD")
+  message(STATUS "Platform: NetBSD")
+  list(APPEND Z3_COMPONENT_CXX_DEFINES "-D_NetBSD_")
 elseif ("${CMAKE_SYSTEM_NAME}" MATCHES "OpenBSD")
   message(STATUS "Platform: OpenBSD")
   list(APPEND Z3_COMPONENT_CXX_DEFINES "-D_OPENBSD_")
-  z3_add_cxx_flag("-fno-strict-aliasing" REQUIRED)
 elseif (CYGWIN)
   message(STATUS "Platform: Cygwin")
   list(APPEND Z3_COMPONENT_CXX_DEFINES "-D_CYGWIN")
-  z3_add_cxx_flag("-fno-strict-aliasing" REQUIRED)
 elseif (WIN32)
   message(STATUS "Platform: Windows")
   list(APPEND Z3_COMPONENT_CXX_DEFINES "-D_WINDOWS")
@@ -257,7 +256,49 @@ else()
   message(FATAL_ERROR "Platform \"${CMAKE_SYSTEM_NAME}\" not recognised")
 endif()
 
-list(APPEND Z3_COMPONENT_EXTRA_INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/src")
+list(APPEND Z3_COMPONENT_EXTRA_INCLUDE_DIRS 
+  "${CMAKE_BINARY_DIR}/src"
+  "${CMAKE_SOURCE_DIR}/src"
+)
+
+################################################################################
+# Linux specific configuration
+################################################################################
+if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
+  # Try to detect if it is necessary to link against librt.
+  # Note that glibc < 2.17 required librt to be linked to use clock_gettime()
+  # and friends.
+  set(CLOCK_GETTIME_REQUIRES_LIBRT_TEST_CODE
+    "
+    #include <time.h>
+    int main() {
+      timespec res;
+      int result = clock_gettime(CLOCK_REALTIME, &res);
+      return result == 0;
+    }
+    "
+  )
+  check_cxx_source_compiles(
+    "${CLOCK_GETTIME_REQUIRES_LIBRT_TEST_CODE}"
+    CLOCK_GETTIME_NO_REQUIRE_LIBRT
+  )
+  if (NOT CLOCK_GETTIME_NO_REQUIRE_LIBRT)
+    # Try again with librt
+    message(STATUS "Failed to link against clock_gettime(), trying with librt")
+    set(CMAKE_REQUIRED_LIBRARIES_OLD "${CMAKE_REQUIRED_LIBRARIES}")
+    set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES} rt")
+    check_cxx_source_compiles(
+      "${CLOCK_GETTIME_REQUIRES_LIBRT_TEST_CODE}"
+      CLOCK_GETTIME_REQUIRES_LIBRT
+    )
+    set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES_OLD}")
+    if (CLOCK_GETTIME_REQUIRES_LIBRT)
+      list(APPEND Z3_DEPENDENT_LIBS "rt")
+    else()
+      message(FATAL_ERROR "Failed to link against clock_gettime()")
+    endif()
+  endif()
+endif()
 
 ################################################################################
 # GNU multiple precision library support
@@ -279,33 +320,37 @@ endif()
 ################################################################################
 # OpenMP support
 ################################################################################
-option(USE_OPENMP "Use OpenMP" ON)
-set(OPENMP_FOUND FALSE)
-if (USE_OPENMP)
-  # Because this is on by default we make the configure succeed with a warning
-  # if OpenMP support is not detected.
-  find_package(OpenMP)
-  if (NOT OPENMP_FOUND)
-    message(WARNING "OpenMP support was requested but your compiler doesn't support it")
-  endif()
-endif()
-
+find_package(OpenMP)
 if (OPENMP_FOUND)
-    list(APPEND Z3_COMPONENT_CXX_FLAGS ${OpenMP_CXX_FLAGS})
-    # GCC and Clang need to have additional flags passed to the linker.
-    # We can't do ``target_link_libraries(libz3 INTERFACE ${OpenMP_CXX_FLAGS})``
-    # because ``/openmp`` is interpreted as file name rather than a linker
-    # flag by MSVC and breaks the build
-    if (("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang") OR
-        ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU"))
-      list(APPEND Z3_DEPENDENT_EXTRA_CXX_LINK_FLAGS ${OpenMP_CXX_FLAGS})
-    endif()
-    unset(CMAKE_REQUIRED_FLAGS)
-    message(STATUS "Using OpenMP")
+  set(USE_OPENMP_DEFAULT ON)
+else()
+  set(USE_OPENMP_DEFAULT OFF)
+endif()
+# By setting `USE_OPENMP` this way configuration will fail during the first
+# configure if the user explicitly passes `-DUSE_OPENMP=ON` and the compiler
+# does not support OpenMP. However if the option is not set explicitly during
+# the first configure OpenMP support will be automatically enabled/disabled
+# depending on whether OpenMP is available.
+option(USE_OPENMP "Use OpenMP" ${USE_OPENMP_DEFAULT})
+
+if (USE_OPENMP)
+  if (NOT OPENMP_FOUND)
+    message(FATAL_ERROR "USE_OPENMP is ON but your compiler does not support OpenMP")
+  endif()
+
+  list(APPEND Z3_COMPONENT_CXX_FLAGS ${OpenMP_CXX_FLAGS})
+  # GCC and Clang need to have additional flags passed to the linker.
+  # We can't do ``target_link_libraries(libz3 INTERFACE ${OpenMP_CXX_FLAGS})``
+  # because ``/openmp`` is interpreted as file name rather than a linker
+  # flag by MSVC and breaks the build
+  if (("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang") OR
+      ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU"))
+    list(APPEND Z3_DEPENDENT_EXTRA_CXX_LINK_FLAGS ${OpenMP_CXX_FLAGS})
+  endif()
+  message(STATUS "Using OpenMP")
 else()
   list(APPEND Z3_COMPONENT_CXX_DEFINES "-D_NO_OMP_")
   message(STATUS "Not using OpenMP")
-  set(USE_OPENMP OFF CACHE BOOL "Use OpenMP" FORCE)
 endif()
 
 ################################################################################
@@ -368,6 +413,20 @@ list(APPEND Z3_DEPENDENT_LIBS ${CMAKE_THREAD_LIBS_INIT})
 include(${CMAKE_SOURCE_DIR}/cmake/compiler_warnings.cmake)
 
 ################################################################################
+# If using Ninja, force color output for Clang (and gcc, disabled to check build).
+################################################################################
+if (UNIX AND CMAKE_GENERATOR STREQUAL "Ninja")
+  if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcolor-diagnostics")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fcolor-diagnostics")
+  endif()
+#  if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+#    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color")
+#    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color")
+#  endif()
+endif()
+
+################################################################################
 # Option to control what type of library we build
 ################################################################################
 option(BUILD_LIBZ3_SHARED "Build libz3 as a shared library if true, otherwise build a static library" ON)
@@ -392,7 +451,7 @@ else()
 endif()
 
 ################################################################################
-# Postion independent code
+# Position independent code
 ################################################################################
 # This is required because code built in the components will end up in a shared
 # library. If not building a shared library ``-fPIC`` isn't needed and would add

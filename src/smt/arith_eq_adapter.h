@@ -23,7 +23,6 @@ Revision History:
 #include "util/obj_pair_hashtable.h"
 #include "ast/arith_decl_plugin.h"
 #include "util/statistics.h"
-#include "ast/simplifier/arith_simplifier_plugin.h"
 
 namespace smt {
 
@@ -54,7 +53,7 @@ namespace smt {
             expr * m_t1_eq_t2;
             expr * m_le;
             expr * m_ge;
-            data():m_t1_eq_t2(0), m_le(0), m_ge(0) {}
+            data():m_t1_eq_t2(nullptr), m_le(nullptr), m_ge(nullptr) {}
             data(expr * t1_eq_t2, expr * le, expr * ge):m_t1_eq_t2(t1_eq_t2), m_le(le), m_ge(ge) {}
         };
 

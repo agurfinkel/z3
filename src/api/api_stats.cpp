@@ -17,7 +17,7 @@ Revision History:
 --*/
 #include<iostream>
 #include "api/z3.h"
-#include"api_log_macros.h"
+#include "api/api_log_macros.h"
 #include "api/api_context.h"
 #include "api/api_stats.h"
 
@@ -130,7 +130,7 @@ extern "C" {
         Z3_CATCH_RETURN(0.0);
     }
 
-    __uint64 Z3_API Z3_get_estimated_alloc_size(void) {
+    uint64_t Z3_API Z3_get_estimated_alloc_size(void) {
         return memory::get_allocation_size();
     }
 

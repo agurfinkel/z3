@@ -28,7 +28,6 @@ namespace smt {
 
     void theory_bv::init(context * ctx) {
         theory::init(ctx);
-        m_simplifier    = &(ctx->get_simplifier());
     }
 
     theory_var theory_bv::mk_var(enode * n) {
@@ -66,7 +65,7 @@ namespace smt {
         bool_var m_var;
     public:
         mk_atom_trail(bool_var v):m_var(v) {}
-        virtual void undo(theory_bv & th) {
+        void undo(theory_bv & th) override {
             theory_bv::atom * a = th.get_bv2a(m_var);
             a->~atom();
             th.erase_bv2a(m_var);
@@ -214,7 +213,7 @@ namespace smt {
         theory_bv::bit_atom * m_atom;
     public:
         add_var_pos_trail(theory_bv::bit_atom * a):m_atom(a) {}
-        virtual void undo(theory_bv & th) {
+        void undo(theory_bv & th) override {
             SASSERT(m_atom->m_occs);
             m_atom->m_occs = m_atom->m_occs->m_next;
         }
@@ -300,7 +299,7 @@ namespace smt {
     void theory_bv::simplify_bit(expr * s, expr_ref & r) {
         // proof_ref p(get_manager());
         // if (get_context().at_base_level())
-        //    m_simplifier->operator()(s, r, p);
+        //    ctx.get_rewriter()(s, r, p);
         // else
         r = s;
     }
@@ -374,7 +373,7 @@ namespace smt {
         void get_proof(conflict_resolution & cr, literal l, ptr_buffer<proof> & prs, bool & visited) {
             if (l.var() == true_bool_var)
                 return;
-            proof * pr = 0;
+            proof * pr = nullptr;
             if (cr.get_context().get_assignment(l) == l_true)
                 pr = cr.get_proof(l);
             else
@@ -390,12 +389,12 @@ namespace smt {
             m_th(th), m_var1(v1), m_var2(v2) {
         }
         
-        virtual void get_antecedents(conflict_resolution & cr) {
+        void get_antecedents(conflict_resolution & cr) override {
             mark_bits(cr, m_th.m_bits[m_var1]);
             mark_bits(cr, m_th.m_bits[m_var2]);
         }
         
-        virtual proof * mk_proof(conflict_resolution & cr) {
+        proof * mk_proof(conflict_resolution & cr) override {
             ptr_buffer<proof> prs;
             context & ctx                       = cr.get_context();
             bool visited                        = true;
@@ -409,17 +408,17 @@ namespace smt {
                 get_proof(cr, *it2, prs, visited);
             }
             if (!visited)
-                return 0;
+                return nullptr;
             expr * fact     = ctx.mk_eq_atom(m_th.get_enode(m_var1)->get_owner(), m_th.get_enode(m_var2)->get_owner());
             ast_manager & m = ctx.get_manager();
             return m.mk_th_lemma(get_from_theory(), fact, prs.size(), prs.c_ptr());
         }
 
-        virtual theory_id get_from_theory() const {
+        theory_id get_from_theory() const override {
             return m_th.get_id();
         }
         
-        virtual char const * get_name() const { return "bv-fixed-eq"; }
+        char const * get_name() const override { return "bv-fixed-eq"; }
 
     };
 
@@ -605,8 +604,9 @@ namespace smt {
             args.push_back(m.mk_ite(b, n, zero));
             num *= numeral(2);
         }
-        expr_ref sum(m);
-        arith_simp().mk_add(sz, args.c_ptr(), sum);
+        expr_ref sum(m_autil.mk_add(sz, args.c_ptr()), m);
+        arith_rewriter arw(m);
+        ctx.get_rewriter()(sum);
         literal l(mk_eq(n, sum, false));
         TRACE("bv", 
               tout << mk_pp(n, m) << "\n";
@@ -1366,7 +1366,6 @@ namespace smt {
         m_params(params),
         m_util(m),
         m_autil(m),
-        m_simplifier(0),
         m_bb(m, bb_params),
         m_trail_stack(*this),
         m_find(*this),
@@ -1511,13 +1510,13 @@ namespace smt {
         bit_eq_justification(theory_id th_id, enode * v1, enode * v2, literal c, literal a):
             m_v1(v1), m_v2(v2), m_th_id(th_id), m_consequent(c), m_antecedent(a) {}
 
-        virtual void get_antecedents(conflict_resolution & cr) {
+        void get_antecedents(conflict_resolution & cr) override {
             cr.mark_eq(m_v1, m_v2);
             if (m_antecedent.var() != true_bool_var)
                 cr.mark_literal(m_antecedent);
         }
 
-        virtual proof * mk_proof(conflict_resolution & cr) {
+        proof * mk_proof(conflict_resolution & cr) override {
             bool visited = true;
             ptr_buffer<proof> prs;
             proof * pr = cr.get_proof(m_v1, m_v2);
@@ -1533,7 +1532,7 @@ namespace smt {
                     visited = false;
             }
             if (!visited)
-                return 0;
+                return nullptr;
             context & ctx = cr.get_context();
             ast_manager & m = cr.get_manager();
             expr_ref fact(m);
@@ -1541,11 +1540,11 @@ namespace smt {
             return m.mk_th_lemma(get_from_theory(), fact, prs.size(), prs.c_ptr());
         }
 
-        virtual theory_id get_from_theory() const {
+        theory_id get_from_theory() const override {
             return m_th_id;
         }
 
-        virtual char const * get_name() const { return "bv-bit-eq"; }
+        char const * get_name() const override { return "bv-bit-eq"; }
     };
 
     inline justification * theory_bv::mk_bit_eq_justification(theory_var v1, theory_var v2, literal consequent, literal antecedent) {

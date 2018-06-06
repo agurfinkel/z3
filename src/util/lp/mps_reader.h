@@ -1,7 +1,22 @@
-/*
-  Copyright (c) 2017 Microsoft Corporation
-  Author: Lev Nachmanson
-*/
+/*++
+Copyright (c) 2017 Microsoft Corporation
+
+Module Name:
+
+    <name>
+
+Abstract:
+
+    <abstract>
+
+Author:
+
+    Lev Nachmanson (levnach)
+
+Revision History:
+
+
+--*/
 
 #pragma once
 
@@ -19,7 +34,7 @@
 #include "util/lp/lar_solver.h"
 #include "util/lp/lp_utils.h"
 #include "util/lp/lp_solver.h"
-namespace lean {
+namespace lp {
 inline bool my_white_space(const char & a) {
     return a == ' ' || a == '\t';
 }
@@ -80,7 +95,7 @@ inline vector<std::string> string_split(const std::string &source, const char *d
     return results;
 }
 
-inline vector<std::string> split_and_trim(std::string line) {
+inline vector<std::string> split_and_trim(const std::string &line) {
     auto split = string_split(line, " \t", false);
     vector<std::string> ret;
     for (auto s : split) {
@@ -112,9 +127,9 @@ class mps_reader {
         std::string m_name;
         bound * m_bound;
         unsigned m_index;
-        column(std::string name, unsigned index): m_name(name),
-                                                  m_bound(nullptr),
-                                                  m_index(index) {
+        column(const std::string &name, unsigned index): m_name(name),
+                                                         m_bound(nullptr),
+                                                         m_index(index) {
         }
     };
 
@@ -125,7 +140,7 @@ class mps_reader {
         unsigned m_index;
         T m_right_side;
         T m_range;
-        row(row_type type, std::string name, unsigned index) :
+        row(row_type type, const std::string &name, unsigned index) :
             m_type(type),
             m_name(name),
             m_index(index),
@@ -160,9 +175,9 @@ class mps_reader {
             if (m_line[i] == ' ')
                 break;
         }
-        lean_assert(m_line.size() >= offset);
-        lean_assert(m_line.size() >> i);
-        lean_assert(i >= offset);
+        SASSERT(m_line.size() >= offset);
+        SASSERT(m_line.size() >> i);
+        SASSERT(i >= offset);
         return m_line.substr(offset, i - offset);
     }
 
@@ -239,7 +254,7 @@ class mps_reader {
         } while (m_is_OK);
     }
 
-    void read_column_by_columns(std::string column_name, std::string column_data) {
+    void read_column_by_columns(const std::string & column_name, std::string column_data) {
          // uph, let us try to work with columns
         if (column_data.size() >= 22) {
             std::string ss = column_data.substr(0, 8);
@@ -268,7 +283,7 @@ class mps_reader {
         }
     }
 
-    void read_column(std::string column_name, std::string column_data){
+    void read_column(const std::string & column_name, const std::string & column_data){
         auto tokens = split_and_trim(column_data);
         for (unsigned i = 0; i < tokens.size() - 1; i+= 2) {
             auto row_name = tokens[i];
@@ -406,7 +421,7 @@ class mps_reader {
     }
 
 
-    void read_bound_by_columns(std::string colstr) {
+    void read_bound_by_columns(const std::string & colstr) {
         if (colstr.size() < 14) {
             (*m_message_stream) << "line is too short" << std::endl;
             (*m_message_stream) << m_line << std::endl;
@@ -497,7 +512,7 @@ class mps_reader {
 
     void create_or_update_bound() {
         const unsigned name_offset = 14;
-        lean_assert(m_line.size() >= 14);
+        SASSERT(m_line.size() >= 14);
         vector<std::string> bound_string = split_and_trim(m_line.substr(name_offset, m_line.size()));
 
         if (bound_string.size() == 0) {
@@ -603,7 +618,7 @@ class mps_reader {
         }
 
         for (auto s : row_with_range->m_row_columns) {
-            lean_assert(m_columns.find(s.first) != m_columns.end());
+            SASSERT(m_columns.find(s.first) != m_columns.end());
             other_bound_range_row->m_row_columns[s.first] = s.second;
         }
     }
@@ -679,7 +694,7 @@ class mps_reader {
         if (row->m_name != m_cost_row_name) {
             solver->add_constraint(get_relation_from_row(row->m_type), row->m_right_side, row->m_index);
             for (auto s : row->m_row_columns) {
-                lean_assert(m_columns.find(s.first) != m_columns.end());
+                SASSERT(m_columns.find(s.first) != m_columns.end());
                 solver->set_row_column_coefficient(row->m_index, m_columns[s.first]->m_index, s.second);
             }
         } else {
@@ -714,7 +729,7 @@ class mps_reader {
     void set_solver_cost(row * row, lp_solver<T, X> *solver) {
         for (auto s : row->m_row_columns) {
             std::string name = s.first;
-            lean_assert(m_columns.find(name) != m_columns.end());
+            SASSERT(m_columns.find(name) != m_columns.end());
             mps_reader::column * col = m_columns[name];
             solver->set_cost_for_column(col->m_index, s.second);
         }
@@ -723,7 +738,7 @@ class mps_reader {
 public:
 
     void set_message_stream(std::ostream * o) {
-        lean_assert(o != nullptr);
+        SASSERT(o != nullptr);
         m_message_stream = o;
     }
     vector<std::string> column_names() {
@@ -748,7 +763,7 @@ public:
         }
     }
 
-    mps_reader(std::string file_name):
+    mps_reader(const std::string & file_name):
         m_is_OK(true),
         m_file_name(file_name), 
         m_file_stream(file_name),

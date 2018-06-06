@@ -17,14 +17,13 @@ Revision History:
 --*/
 
 
-#include "dl_mk_array_instantiation.h"
-#include "dl_context.h"
-#include "pattern_inference.h"
-#include "dl_context.h"
-#include "expr_safe_replace.h"
-#include "expr_abstract.h"
-#include"fixedpoint_params.hpp"
-#include "../spacer/obj_equiv_class.h"
+#include "muz/transforms/dl_mk_array_instantiation.h"
+#include "muz/base/dl_context.h"
+#include "ast/pattern/pattern_inference.h"
+#include "muz/base/dl_context.h"
+#include "ast/rewriter/expr_safe_replace.h"
+#include "ast/expr_abstract.h"
+#include "muz/base/fixedpoint_params.hpp"
 
 namespace datalog {
 
@@ -244,7 +243,7 @@ namespace datalog {
   expr_ref_vector mk_array_instantiation::retrieve_all_selects(expr*array)
   {
     expr_ref_vector all_selects(m);
-    for(spacer::expr_equiv_class::iterator it = eq_classes.begin(array);
+    for(expr_equiv_class::iterator it = eq_classes.begin(array);
         it != eq_classes.end(array); ++it)
     {
       selects.insert_if_not_there(*it, ptr_vector<expr>());

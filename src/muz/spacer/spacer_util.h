@@ -22,20 +22,21 @@ Revision History:
 #ifndef _SPACER_UTIL_H_
 #define _SPACER_UTIL_H_
 
-#include "ast.h"
-#include "ast_pp.h"
-#include "obj_hashtable.h"
-#include "ref_vector.h"
-#include "simplifier.h"
-#include "trace.h"
-#include "vector.h"
-#include "arith_decl_plugin.h"
-#include "array_decl_plugin.h"
-#include "bv_decl_plugin.h"
-#include "model.h"
+#include "ast/ast.h"
+#include "ast/ast_pp.h"
+#include "util/obj_hashtable.h"
+#include "util/ref_vector.h"
+#include "util/trace.h"
+#include "util/vector.h"
+#include "ast/arith_decl_plugin.h"
+#include "ast/array_decl_plugin.h"
+#include "ast/bv_decl_plugin.h"
+#include "ast/ast_util.h"
+#include "ast/expr_map.h"
+#include "model/model.h"
 
-#include "stopwatch.h"
-#include "spacer_antiunify.h"
+#include "util/stopwatch.h"
+#include "muz/spacer/spacer_antiunify.h"
 
 class model;
 class model_core;
@@ -73,15 +74,6 @@ inline std::ostream& operator<<(std::ostream& out, pp_level const& p)
 }
 
 
-struct scoped_watch {
-    stopwatch &m_sw;
-    scoped_watch (stopwatch &sw, bool reset=false): m_sw(sw)
-        {
-            if(reset) { m_sw.reset(); }
-            m_sw.start ();
-        }
-    ~scoped_watch () {m_sw.stop ();}
-};
 
 
 typedef ptr_vector<app> app_vector;
@@ -133,6 +125,9 @@ bool is_difference_logic(ast_manager& m, unsigned num_fmls, expr* const* fmls);
 
 bool is_utvpi_logic(ast_manager& m, unsigned num_fmls, expr* const* fmls);
 
+void to_mbp_benchmark(std::ostream &out, const expr* fml,
+                      const app_ref_vector &vars);
+
 /**
  * do the following in sequence
  * 1. use qe_lite to cheaply eliminate vars
@@ -152,7 +147,10 @@ void compute_implicant_literals (model_evaluator_util &mev,
 void simplify_bounds (expr_ref_vector &lemmas);
 void normalize(expr *e, expr_ref &out, bool use_simplify_bounds = true, bool factor_eqs = false);
 
-/** ground expression by replacing all free variables by skolem constants */
+/** Ground expression by replacing all free variables by skolem
+ ** constants. On return, out is the resulting expression, and vars is
+ ** a map from variable ids to corresponding skolem constants.
+ */
 void ground_expr (expr *e, expr_ref &out, app_ref_vector &vars);
 
 
@@ -170,7 +168,7 @@ void find_decls (expr* fml, app_ref_vector& decls, std::string& prefix);
 struct mk_epp : public mk_pp {
     params_ref m_epp_params;
     expr_ref m_epp_expr;
-    mk_epp(ast *t, ast_manager &m, unsigned indent = 0, unsigned num_vars = 0, char const * var_prefix = 0);
+    mk_epp(ast *t, ast_manager &m, unsigned indent = 0, unsigned num_vars = 0, char const * var_prefix = nullptr);
     void rw(expr *e, expr_ref &out);
 
 };

@@ -85,7 +85,12 @@ namespace smt {
         /**
            \brief Return the array of asserted formulas.
         */
-        expr * const * get_formulas() const;
+        void get_formulas(ptr_vector<expr>& r) const;
+
+        /**
+           \brief return the formula at index idx.
+        */
+        expr* get_formula(unsigned idx) const;
         
         /**
            \brief Create a backtracking point (aka scope level).
@@ -121,11 +126,13 @@ namespace smt {
         /**
            \brief Satisfiability check.
         */
-        lbool check(unsigned num_assumptions = 0, expr * const * assumptions = 0);
+        lbool check(unsigned num_assumptions = 0, expr * const * assumptions = nullptr);
 
         lbool check(expr_ref_vector const& asms) { return check(asms.size(), asms.c_ptr()); }
 
         lbool check(app_ref_vector const& asms) { return check(asms.size(), (expr* const*)asms.c_ptr()); }
+
+        lbool check(expr_ref_vector const& cube, vector<expr_ref_vector> const& clauses);
 
         /**
            \brief extract consequences among variables.
@@ -206,6 +213,11 @@ namespace smt {
            \brief Return the set of guessed literals (decisions) performed in the last check command.
         */
         void get_guessed_literals(expr_ref_vector & result);
+
+        /**
+           \brief return the next case split literal.
+        */
+        expr* next_decision();
 
         /**
            \brief (For debubbing purposes) Prints the state of the kernel

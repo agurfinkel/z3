@@ -20,23 +20,23 @@ Notes:
 
 --*/
 
-#include "smt/smt_kernel.h"
-#include "qe/qe_mbp.h"
-#include "smt/params/smt_params.h"
+#include "ast/expr_abstract.h"
 #include "ast/ast_util.h"
 #include "ast/rewriter/quant_hoist.h"
 #include "ast/ast_pp.h"
-#include "model/model_v2_pp.h"
-#include "qe/qsat.h"
-#include "ast/expr_abstract.h"
-#include "qe/qe.h"
-#include "ast/rewriter/label_rewriter.h"
-#include "ast/rewriter/expr_replacer.h"
 #include "ast/rewriter/th_rewriter.h"
+#include "ast/rewriter/expr_replacer.h"
+#include "model/model_v2_pp.h"
 #include "model/model_evaluator.h"
+#include "smt/smt_kernel.h"
+#include "smt/params/smt_params.h"
 #include "smt/smt_solver.h"
 #include "solver/solver.h"
 #include "solver/mus.h"
+#include "qe/qsat.h"
+#include "qe/qe_mbp.h"
+#include "qe/qe.h"
+#include "ast/rewriter/label_rewriter.h"
 
 namespace qe {
 
@@ -44,11 +44,11 @@ namespace qe {
         m(m),
         m_asms(m),
         m_trail(m),
-        m_fmc(alloc(filter_model_converter, m))
+        m_fmc(alloc(generic_model_converter, m, "qsat"))
     {
     }
 
-    filter_model_converter* pred_abs::fmc() { 
+    generic_model_converter* pred_abs::fmc() { 
         return m_fmc.get(); 
     }
 
@@ -282,7 +282,7 @@ namespace qe {
 
     app_ref pred_abs::fresh_bool(char const* name) {
         app_ref r(m.mk_fresh_const(name, m.mk_bool_sort()), m);
-        m_fmc->insert(r->get_decl());
+        m_fmc->hide(r);
         return r;
     }
 
@@ -626,6 +626,9 @@ namespace qe {
                     SASSERT(validate_assumptions(*m_model.get(), asms));
                     SASSERT(validate_model(asms));
                     TRACE("qe", s.display(tout); display(tout << "\n", *m_model.get()); display(tout, asms); );
+                    if (m_level == 0) {
+                        m_model_save = m_model;
+                    }
                     push();
                     if (m_level == 1 && m_mode == qsat_maximize) {
                         maximize_model();
@@ -693,7 +696,7 @@ namespace qe {
             m_level -= num_scopes;
         }
         
-        void reset() {
+        void reset() override {
             m_st.reset();        
             m_fa.s().collect_statistics(m_st);
             m_ex.s().collect_statistics(m_st);        
@@ -703,7 +706,7 @@ namespace qe {
             m_asms.reset();
             m_pred_abs.reset();
             m_vars.reset();
-            m_model = 0;
+            m_model = nullptr;
             m_fa.reset();
             m_ex.reset();        
             m_free_vars.reset();
@@ -747,9 +750,7 @@ namespace qe {
         }
 
         void filter_vars(app_ref_vector const& vars) {
-            for (unsigned i = 0; i < vars.size(); ++i) {
-                m_pred_abs.fmc()->insert(vars[i]->get_decl());
-            }
+            for (app* v : vars) m_pred_abs.fmc()->hide(v);
         }        
 
         void initialize_levels() {
@@ -953,7 +954,7 @@ namespace qe {
             ptr_vector<expr>    todo;
             trail.push_back(fml);
             todo.push_back(fml);
-            expr* e = 0, *r = 0;
+            expr* e = nullptr, *r = nullptr;
             
             while (!todo.empty()) {
                 check_cancel();
@@ -1193,38 +1194,32 @@ namespace qe {
             m_mode(mode),
             m_avars(m),
             m_free_vars(m),
-            m_objective(0),
-            m_value(0),
+            m_objective(nullptr),
+            m_value(nullptr),
             m_was_sat(false),
             m_gt(m)
         {
             reset();
         }
         
-        virtual ~qsat() {
+        ~qsat() override {
             reset();
         }
         
-        void updt_params(params_ref const & p) {
+        void updt_params(params_ref const & p) override {
         }
         
-        void collect_param_descrs(param_descrs & r) {
+        void collect_param_descrs(param_descrs & r) override {
         }
 
         
         void operator()(/* in */  goal_ref const & in, 
-                        /* out */ goal_ref_buffer & result, 
-                        /* out */ model_converter_ref & mc, 
-                        /* out */ proof_converter_ref & pc,
-                        /* out */ expr_dependency_ref & core) {
+                        /* out */ goal_ref_buffer & result) override {
             tactic_report report("qsat-tactic", *in);
             ptr_vector<expr> fmls;
             expr_ref_vector defs(m);
             expr_ref fml(m);
-            mc = 0; pc = 0; core = 0;
             in->get_formulas(fmls);
-
-
             fml = mk_and(m, fmls.size(), fmls.c_ptr());
             
             // for now:
@@ -1274,8 +1269,10 @@ namespace qe {
                 in->inc_depth();
                 result.push_back(in.get());
                 if (in->models_enabled()) {
+                    model_converter_ref mc;
                     mc = model2model_converter(m_model.get());
                     mc = concat(m_pred_abs.fmc(), mc.get());
+                    in->add(mc.get());
                 }
                 break;
             case l_undef:
@@ -1288,7 +1285,7 @@ namespace qe {
             }        
         }
         
-        void collect_statistics(statistics & st) const {
+        void collect_statistics(statistics & st) const override {
             st.copy(m_st);
             m_fa.s().collect_statistics(st);
             m_ex.s().collect_statistics(st);        
@@ -1297,23 +1294,23 @@ namespace qe {
             m_pred_abs.collect_statistics(st);
         }
         
-        void reset_statistics() {
+        void reset_statistics() override {
             m_stats.reset();
             m_fa.reset();
             m_ex.reset();
         }
         
-        void cleanup() {
+        void cleanup() override {
             reset();
         }
         
-        void set_logic(symbol const & l) {
+        void set_logic(symbol const & l) override {
         }
         
-        void set_progress_callback(progress_callback * callback) {
+        void set_progress_callback(progress_callback * callback) override {
         }
         
-        tactic * translate(ast_manager & m) {
+        tactic * translate(ast_manager & m) override {
             return alloc(qsat, m, m_params, m_mode);
         }        
 

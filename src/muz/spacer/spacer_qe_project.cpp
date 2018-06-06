@@ -21,22 +21,27 @@ Revision History:
 
 --*/
 
-#include "spacer_qe_project.h"
-#include "qe_vartest.h"
-#include "qe.h"
-#include "arith_decl_plugin.h"
-#include "ast_pp.h"
-#include "th_rewriter.h"
-#include "expr_functors.h"
-#include "expr_substitution.h"
-#include "expr_replacer.h"
-#include "model_pp.h"
-#include "expr_safe_replace.h"
-#include "model_evaluator.h"
-#include "qe_lite.h"
-#include "spacer_mev_array.h"
+#include "ast/arith_decl_plugin.h"
+#include "ast/ast_pp.h"
+#include "ast/expr_functors.h"
+#include "ast/expr_substitution.h"
+#include "ast/ast_util.h"
 
-namespace
+#include "ast/rewriter/expr_replacer.h"
+#include "ast/rewriter/expr_safe_replace.h"
+#include "ast/rewriter/th_rewriter.h"
+
+#include "model/model_evaluator.h"
+#include "model/model_pp.h"
+
+#include "qe/qe.h"
+#include "qe/qe_vartest.h"
+#include "qe/qe_lite.h"
+
+#include "muz/spacer/spacer_mev_array.h"
+#include "muz/spacer/spacer_qe_project.h"
+
+namespace spacer_qe
 {
 bool is_partial_eq (app* a);
 
@@ -61,7 +66,6 @@ class peq {
     app_ref             m_peq;      // partial equality application
     app_ref             m_eq;       // equivalent std equality using def. of partial eq
     array_util          m_arr_u;
-    ast_eq_proc         m_eq_proc;  // for checking if two asts are equal
 
 public:
     static const char* PARTIAL_EQ;
@@ -94,10 +98,10 @@ peq::peq (app* p, ast_manager& m):
     m_eq (m),
     m_arr_u (m)
 {
-    SASSERT (is_partial_eq (p));
+    VERIFY (is_partial_eq (p));
     SASSERT (m_arr_u.is_array (m_lhs) &&
              m_arr_u.is_array (m_rhs) &&
-             m_eq_proc (m.get_sort (m_lhs), m.get_sort (m_rhs)));
+             ast_eq_proc() (m.get_sort (m_lhs), m.get_sort (m_rhs)));
     for (unsigned i = 2; i < p->get_num_args (); i++) {
         m_diff_indices.push_back (p->get_arg (i));
     }
@@ -116,7 +120,7 @@ peq::peq (expr* lhs, expr* rhs, unsigned num_indices, expr * const * diff_indice
 {
     SASSERT (m_arr_u.is_array (lhs) &&
              m_arr_u.is_array (rhs) &&
-             m_eq_proc (m.get_sort (lhs), m.get_sort (rhs)));
+             ast_eq_proc() (m.get_sort (lhs), m.get_sort (rhs)));
     ptr_vector<sort> sorts;
     sorts.push_back (m.get_sort (m_lhs));
     sorts.push_back (m.get_sort (m_rhs));
@@ -182,18 +186,18 @@ bool is_partial_eq (app* a) {
 }
 
 
-namespace qe {
+namespace spacer_qe {
 
     class is_relevant_default : public i_expr_pred {
     public:
-        bool operator()(expr* e) {
+        bool operator()(expr* e) override {
             return true;
         }
     };
 
-    class mk_atom_default : public i_nnf_atom {
+    class mk_atom_default : public qe::i_nnf_atom {
     public:
-        virtual void operator()(expr* e, bool pol, expr_ref& result) {
+        void operator()(expr* e, bool pol, expr_ref& result) override {
             if (pol) result = e;
             else result = result.get_manager().mk_not(e);
         }
@@ -591,7 +595,7 @@ namespace qe {
                     // c*x + t = 0  <=>  x = -t/c
                     expr_ref eq_term (mk_mul (-(rational::one ()/m_coeffs[eq_idx]), m_terms.get (eq_idx)), m);
                     m_rw (eq_term);
-                    map.insert (m_var->x (), eq_term, 0);
+                    map.insert (m_var->x (), eq_term, nullptr);
                     TRACE ("qe",
                             tout << "Using equality term: " << mk_pp (eq_term, m) << "\n";
                           );
@@ -676,7 +680,7 @@ namespace qe {
                     } else {
                         new_lit = m.mk_true ();
                     }
-                    map.insert (m_lits.get (i), new_lit, 0);
+                    map.insert (m_lits.get (i), new_lit, nullptr);
                     TRACE ("qe",
                             tout << "Old literal: " << mk_pp (m_lits.get (i), m) << "\n";
                             tout << "New literal: " << mk_pp (new_lit, m) << "\n";
@@ -718,7 +722,7 @@ namespace qe {
                     } else {
                         new_lit = m.mk_true ();
                     }
-                    map.insert (m_lits.get (i), new_lit, 0);
+                    map.insert (m_lits.get (i), new_lit, nullptr);
                     TRACE ("qe",
                             tout << "Old literal: " << mk_pp (m_lits.get (i), m) << "\n";
                             tout << "New literal: " << mk_pp (new_lit, m) << "\n";
@@ -784,7 +788,7 @@ namespace qe {
         }
 
         unsigned find_max(model& mdl, bool do_pos) {
-            unsigned result;
+            unsigned result = UINT_MAX;
             bool found = false;
             bool found_strict = false;
             rational found_val (0), r, r_plus_x, found_c;
@@ -928,7 +932,7 @@ namespace qe {
                     if (!all_done) continue;
                     // all args so far have been processed
                     // get the correct arg to use
-                    proof* pr = 0; expr* new_arg = 0;
+                    proof* pr = nullptr; expr* new_arg = nullptr;
                     factored_terms.get (old_arg, new_arg, pr);
                     if (new_arg) {
                         // changed
@@ -961,7 +965,7 @@ namespace qe {
                         mdl.register_decl (new_var->get_decl (), val);
                     }
                     if (changed) {
-                        factored_terms.insert (e, new_term, 0);
+                        factored_terms.insert (e, new_term, nullptr);
                     }
                     done.mark (e, true);
                     todo.pop_back ();
@@ -969,7 +973,7 @@ namespace qe {
             }
 
             // mk new fml
-            proof* pr = 0; expr* new_fml = 0;
+            proof* pr = nullptr; expr* new_fml = nullptr;
             factored_terms.get (fml, new_fml, pr);
             if (new_fml) {
                 fml = new_fml;
@@ -990,9 +994,9 @@ namespace qe {
          * the divisibility atom is a special mod term ((t1-t2) % num == 0)
          */
         void mod2div (expr_ref& fml, expr_map& map) {
-            expr* new_fml = 0;
+            expr* new_fml = nullptr;
 
-            proof *pr = 0;
+            proof *pr = nullptr;
             map.get (fml, new_fml, pr);
             if (new_fml) {
                 fml = new_fml;
@@ -1061,7 +1065,7 @@ namespace qe {
                 new_fml = m.mk_app (a->get_decl (), children.size (), children.c_ptr ());
             }
 
-            map.insert (fml, new_fml, 0);
+            map.insert (fml, new_fml, nullptr);
             fml = new_fml;
         }
 
@@ -1129,7 +1133,7 @@ namespace qe {
                                            z);
                     }
                 }
-                map.insert (m_lits.get (i), new_lit, 0);
+                map.insert (m_lits.get (i), new_lit, nullptr);
                 TRACE ("qe",
                         tout << "Old literal: " << mk_pp (m_lits.get (i), m) << "\n";
                         tout << "New literal: " << mk_pp (new_lit, m) << "\n";
@@ -1141,7 +1145,7 @@ namespace qe {
             expr_substitution sub (m);
             // literals
             for (unsigned i = 0; i < lits.size (); i++) {
-                expr* new_lit = 0; proof* pr = 0;
+                expr* new_lit = nullptr; proof* pr = nullptr;
                 app* old_lit = lits.get (i);
                 map.get (old_lit, new_lit, pr);
                 if (new_lit) {
@@ -1153,7 +1157,7 @@ namespace qe {
                 }
             }
             // substitute for x, if any
-            expr* x_term = 0; proof* pr = 0;
+            expr* x_term = nullptr; proof* pr = nullptr;
             map.get (m_var->x (), x_term, pr);
             if (x_term) {
                 sub.insert (m_var->x (), x_term);
@@ -1204,7 +1208,7 @@ namespace qe {
 
         void operator()(model& mdl, app_ref_vector& vars, expr_ref& fml) {
           expr_map map (m);
-        	operator()(mdl, vars, fml, map);
+            operator()(mdl, vars, fml, map);
         }
 
         void operator()(model& mdl, app_ref_vector& vars, expr_ref& fml, expr_map& map) {
@@ -1288,9 +1292,9 @@ namespace qe {
         model_evaluator_array_util  m_mev;
 
         void reset_v () {
-            m_v = 0;
+            m_v = nullptr;
             m_has_stores_v.reset ();
-            m_subst_term_v = 0;
+            m_subst_term_v = nullptr;
             m_true_sub_v.reset ();
             m_false_sub_v.reset ();
             m_aux_lits_v.reset ();
@@ -1298,7 +1302,7 @@ namespace qe {
         }
 
         void reset () {
-            M = 0;
+            M = nullptr;
             reset_v ();
             m_aux_vars.reset ();
         }
@@ -1389,7 +1393,7 @@ namespace qe {
                         todo.push_back (to_app (arg));
                     }
                     else if (all_done) { // all done so far..
-                        expr* arg_new = 0; proof* pr;
+                        expr* arg_new = nullptr; proof* pr;
                         sel_cache.get (arg, arg_new, pr);
                         if (!arg_new) {
                             arg_new = arg;
@@ -1419,12 +1423,12 @@ namespace qe {
                 }
 
                 if (a != a_new) {
-                    sel_cache.insert (a, a_new, 0);
+                    sel_cache.insert (a, a_new, nullptr);
                     pinned.push_back (a_new);
                 }
                 done.mark (a, true);
             }
-            expr* res = 0; proof* pr;
+            expr* res = nullptr; proof* pr;
             sel_cache.get (fml, res, pr);
             if (res) {
                 fml = to_app (res);
@@ -1474,7 +1478,7 @@ namespace qe {
 
         void find_subst_term (app* eq) {
             app_ref p_exp (m);
-            mk_peq (eq->get_arg (0), eq->get_arg (1), 0, 0, p_exp);
+            mk_peq (eq->get_arg (0), eq->get_arg (1), 0, nullptr, p_exp);
             bool subst_eq_found = false;
             while (true) {
                 TRACE ("qe",
@@ -1668,7 +1672,7 @@ namespace qe {
                 expr* rhs = eq->get_arg (1);
                 bool lhs_has_v = (lhs == m_v || m_has_stores_v.is_marked (lhs));
                 bool rhs_has_v = (rhs == m_v || m_has_stores_v.is_marked (rhs));
-                app* store = 0;
+                app* store = nullptr;
 
                 SASSERT (lhs_has_v || rhs_has_v);
 
@@ -1825,7 +1829,7 @@ namespace qe {
             m_cache.reset ();
             m_pinned.reset ();
             m_idx_lits.reset ();
-            M = 0;
+            M = nullptr;
             m_arr_test.reset ();
             m_has_stores.reset ();
             m_reduce_all_selects = false;
@@ -1860,7 +1864,7 @@ namespace qe {
         bool reduce (expr_ref& e) {
             if (!is_app (e)) return true;
 
-            expr *r = 0;
+            expr *r = nullptr;
             if (m_cache.find (e, r)) {
                 e = r;
                 return true;
@@ -1878,7 +1882,7 @@ namespace qe {
 
                 for (unsigned i = 0; i < a->get_num_args (); ++i) {
                     expr *arg = a->get_arg (i);
-                    expr *narg = 0;
+                    expr *narg = nullptr;
 
                     if (!is_app (arg)) args.push_back (arg);
                     else if (m_cache.find (arg, narg)) {
@@ -2021,7 +2025,7 @@ namespace qe {
             m_idx_vals.reset ();
             m_sel_consts.reset ();
             m_idx_lits.reset ();
-            M = 0;
+            M = nullptr;
             m_sub.reset ();
             m_arr_test.reset ();
         }
@@ -2074,6 +2078,7 @@ namespace qe {
             sort* v_sort = m.get_sort (v);
             sort* val_sort = get_array_range (v_sort);
             sort* idx_sort = get_array_domain (v_sort, 0);
+            (void) idx_sort;
 
             unsigned start = m_idx_reprs.size (); // append at the end
 
@@ -2249,7 +2254,7 @@ namespace qe {
     void arith_project(model& mdl, app_ref_vector& vars, expr_ref& fml) {
         ast_manager& m = vars.get_manager();
         arith_project_util ap(m);
-        atom_set pos_lits, neg_lits;
+        qe::atom_set pos_lits, neg_lits;
         is_relevant_default is_relevant;
         mk_atom_default mk_atom;
         get_nnf (fml, is_relevant, mk_atom, pos_lits, neg_lits);
@@ -2259,7 +2264,7 @@ namespace qe {
     void arith_project(model& mdl, app_ref_vector& vars, expr_ref& fml, expr_map& map) {
         ast_manager& m = vars.get_manager();
         arith_project_util ap(m);
-        atom_set pos_lits, neg_lits;
+        qe::atom_set pos_lits, neg_lits;
         is_relevant_default is_relevant;
         mk_atom_default mk_atom;
         get_nnf (fml, is_relevant, mk_atom, pos_lits, neg_lits);

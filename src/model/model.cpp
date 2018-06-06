@@ -42,10 +42,8 @@ model::~model() {
 
 
 void model::copy_const_interps(model const & source) {
-    decl2expr::iterator it1  = source.m_interp.begin();
-    decl2expr::iterator end1 = source.m_interp.end();
-    for (; it1 != end1; ++it1) {
-        register_decl(it1->m_key, it1->m_value);
+    for (auto const& kv : source.m_interp) {
+        register_decl(kv.m_key, kv.m_value);
     }
 }
 
@@ -93,13 +91,13 @@ bool model::eval(expr * e, expr_ref & result, bool model_completion) {
 struct model::value_proc : public some_value_proc {
     model & m_model;
     value_proc(model & m):m_model(m) {}
-    virtual expr * operator()(sort * s) {
-        ptr_vector<expr> * u = 0;
+    expr * operator()(sort * s) override {
+        ptr_vector<expr> * u = nullptr;
         if (m_model.m_usort2universe.find(s, u)) {
             if (u->size() > 0)
                 return u->get(0);
         }
-        return 0;
+        return nullptr;
     }
 };
 
@@ -109,16 +107,16 @@ expr * model::get_some_value(sort * s) {
 }
 
 ptr_vector<expr> const & model::get_universe(sort * s) const {
-    ptr_vector<expr> * u = 0;
+    ptr_vector<expr> * u = nullptr;
     m_usort2universe.find(s, u);
     SASSERT(u != 0);
     return *u;
 }
 
 bool model::has_uninterpreted_sort(sort * s) const {
-    ptr_vector<expr> * u = 0;
+    ptr_vector<expr> * u = nullptr;
     m_usort2universe.find(s, u);
-    return u != 0;
+    return u != nullptr;
 }
 
 unsigned model::get_num_uninterpreted_sorts() const {

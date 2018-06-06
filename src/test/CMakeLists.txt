@@ -16,14 +16,15 @@ add_executable(test-z3
   arith_rewriter.cpp
   arith_simplifier_plugin.cpp
   ast.cpp
+  bdd.cpp
   bit_blaster.cpp
   bits.cpp
   bit_vector.cpp
   buffer.cpp
-  bv_simplifier_plugin.cpp
   chashtable.cpp
   check_assumptions.cpp
   cnf_backbones.cpp
+  cube_clause.cpp
   datalog_parser.cpp
   ddnf.cpp
   diff_logic.cpp
@@ -93,6 +94,8 @@ add_executable(test-z3
   rational.cpp
   rcf.cpp
   region.cpp
+  sat_local_search.cpp
+  sat_lookahead.cpp
   sat_user_scope.cpp
   simple_parser.cpp
   simplex.cpp
@@ -100,6 +103,7 @@ add_executable(test-z3
   small_object_allocator.cpp
   smt2print_parse.cpp
   smt_context.cpp
+  solver_pool.cpp
   sorting_network.cpp
   stack.cpp
   string_buffer.cpp
@@ -117,7 +121,6 @@ add_executable(test-z3
   upolynomial.cpp
   var_subst.cpp
   vector.cpp
-  lp.cpp
   ${z3_test_extra_object_files}
 )
 z3_add_install_tactic_rule(${z3_test_deps})

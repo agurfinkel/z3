@@ -1215,6 +1215,44 @@ struct
   let mk_numeral ctx v size = Z3native.mk_numeral ctx v (mk_sort ctx size)
 end
 
+module Seq =
+struct
+  let mk_seq_sort  = Z3native.mk_seq_sort
+  let is_seq_sort = Z3native.is_seq_sort 
+  let mk_re_sort = Z3native.mk_re_sort
+  let is_re_sort = Z3native.is_re_sort
+  let mk_string_sort = Z3native.mk_string_sort
+  let is_string_sort = Z3native.is_string_sort
+  let mk_string = Z3native.mk_string
+  let is_string = Z3native.is_string
+  let get_string = Z3native.get_string
+  let mk_seq_empty = Z3native.mk_seq_empty
+  let mk_seq_unit = Z3native.mk_seq_unit
+  let mk_seq_concat ctx args = Z3native.mk_seq_concat ctx (List.length args) args
+  let mk_seq_prefix = Z3native.mk_seq_prefix
+  let mk_seq_suffix = Z3native.mk_seq_suffix
+  let mk_seq_contains = Z3native.mk_seq_contains 
+  let mk_seq_extract = Z3native.mk_seq_extract
+  let mk_seq_replace = Z3native.mk_seq_replace
+  let mk_seq_at = Z3native.mk_seq_at
+  let mk_seq_length = Z3native.mk_seq_length
+  let mk_seq_index = Z3native.mk_seq_index
+  let mk_str_to_int = Z3native.mk_str_to_int
+  let mk_int_to_str = Z3native.mk_int_to_str
+  let mk_seq_to_re = Z3native.mk_seq_to_re
+  let mk_seq_in_re = Z3native.mk_seq_in_re
+  let mk_re_plus = Z3native.mk_re_plus
+  let mk_re_star = Z3native.mk_re_star
+  let mk_re_option = Z3native.mk_re_option
+  let mk_re_union ctx args = Z3native.mk_re_union ctx (List.length args) args
+  let mk_re_concat ctx args = Z3native.mk_re_concat ctx (List.length args) args
+  let mk_re_range = Z3native.mk_re_range
+  let mk_re_loop = Z3native.mk_re_loop
+  let mk_re_intersect = Z3native.mk_re_intersect
+  let mk_re_complement = Z3native.mk_re_complement
+  let mk_re_empty = Z3native.mk_re_empty
+  let mk_re_full = Z3native.mk_re_full
+end
 
 module FloatingPoint =
 struct
@@ -1364,7 +1402,6 @@ struct
   let is_rewrite (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_REWRITE)
   let is_rewrite_star (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_REWRITE_STAR)
   let is_pull_quant (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_PULL_QUANT)
-  let is_pull_quant_star (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_PULL_QUANT_STAR)
   let is_push_quant (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_PUSH_QUANT)
   let is_elim_unused_vars (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_ELIM_UNUSED_VARS)
   let is_der (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_DER)
@@ -1381,8 +1418,6 @@ struct
   let is_iff_oeq (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_IFF_OEQ)
   let is_nnf_pos (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_NNF_POS)
   let is_nnf_neg (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_NNF_NEG)
-  let is_nnf_star (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_NNF_STAR)
-  let is_cnf_star (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_CNF_STAR)
   let is_skolemize (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_SKOLEMIZE)
   let is_modus_ponens_oeq (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_MODUS_PONENS_OEQ)
   let is_theory_lemma (x:expr) = (AST.is_app x) && (FuncDecl.get_decl_kind (Expr.get_func_decl x) = OP_PR_TH_LEMMA)
@@ -1926,7 +1961,7 @@ struct
   let from_file (x:optimize) (s:string) = Z3native.optimize_from_file (gc x) x s
   let from_string (x:optimize) (s:string) = Z3native.optimize_from_string (gc x) x s
   let get_assertions (x:optimize) = AST.ASTVector.to_expr_list (Z3native.optimize_get_assertions (gc x) x)
-  let get_objectives (x:optimize) = AST.ASTVector.to_expr_list (Z3native.optimize_get_statistics (gc x) x)
+  let get_objectives (x:optimize) = AST.ASTVector.to_expr_list (Z3native.optimize_get_objectives (gc x) x)
 end
 
 
@@ -1936,56 +1971,6 @@ struct
     Z3native.benchmark_to_smtlib_string ctx name logic status attributes
       (List.length assumptions) assumptions
       formula
-
-  let parse_smtlib_string (ctx:context) (str:string) (sort_names:Symbol.symbol list) (sorts:Sort.sort list) (decl_names:Symbol.symbol list) (decls:func_decl list) =
-    let csn = List.length sort_names in
-    let cs = List.length sorts in
-    let cdn = List.length decl_names in
-    let cd = List.length decls in
-    if (csn <> cs || cdn <> cd) then
-      raise (Error "Argument size mismatch")
-    else
-      Z3native.parse_smtlib_string ctx str
-        cs sort_names sorts cd decl_names decls
-
-  let parse_smtlib_file (ctx:context) (file_name:string) (sort_names:Symbol.symbol list) (sorts:Sort.sort list) (decl_names:Symbol.symbol list) (decls:func_decl list) =
-    let csn = (List.length sort_names) in
-    let cs = (List.length sorts) in
-    let cdn = (List.length decl_names) in
-    let cd = (List.length decls) in
-    if (csn <> cs || cdn <> cd) then
-      raise (Error "Argument size mismatch")
-    else
-      Z3native.parse_smtlib_file ctx file_name
-        cs sort_names sorts cd decl_names decls
-
-  let get_num_smtlib_formulas (ctx:context) = Z3native.get_smtlib_num_formulas ctx
-
-  let get_smtlib_formulas (ctx:context) =
-    let n = get_num_smtlib_formulas ctx in
-    let f i = Z3native.get_smtlib_formula ctx i in
-    mk_list f n
-
-  let get_num_smtlib_assumptions (ctx:context) = Z3native.get_smtlib_num_assumptions ctx
-
-  let get_smtlib_assumptions (ctx:context) =
-    let n = get_num_smtlib_assumptions ctx in
-    let f i = Z3native.get_smtlib_assumption ctx i in
-    mk_list f n
-
-  let get_num_smtlib_decls (ctx:context) = Z3native.get_smtlib_num_decls ctx
-
-  let get_smtlib_decls (ctx:context) =
-    let n = get_num_smtlib_decls ctx in
-    let f i = Z3native.get_smtlib_decl ctx i in
-    mk_list f n
-
-  let get_num_smtlib_sorts (ctx:context)  = Z3native.get_smtlib_num_sorts ctx
-
-  let get_smtlib_sorts (ctx:context) =
-    let n = get_num_smtlib_sorts ctx in
-    let f i = Z3native.get_smtlib_sort ctx i in
-    mk_list f n
 
   let parse_smtlib2_string (ctx:context) (str:string) (sort_names:Symbol.symbol list) (sorts:Sort.sort list) (decl_names:Symbol.symbol list) (decls:func_decl list) =
     let csn = List.length sort_names in
@@ -2006,7 +1991,7 @@ struct
     if csn <> cs || cdn <> cd then
       raise (Error "Argument size mismatch")
     else
-      Z3native.parse_smtlib2_string ctx file_name
+      Z3native.parse_smtlib2_file ctx file_name
         cs sort_names sorts cd decl_names decls
 end
 

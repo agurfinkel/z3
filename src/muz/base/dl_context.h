@@ -54,14 +54,14 @@ namespace datalog {
         MEMOUT,
         INPUT_ERROR,
         APPROX,
-	BOUNDED,
+        BOUNDED,
         CANCELED
     };
 
     class relation_manager;
 
     typedef sort * relation_sort;
-    typedef uint64 table_element;
+    typedef uint64_t table_element;
     typedef svector<table_element> table_fact;
 
     typedef app * relation_element;
@@ -110,7 +110,7 @@ namespace datalog {
     class rel_context_base : public engine_base {
     public:
         rel_context_base(ast_manager& m, char const* name): engine_base(m, name) {}
-        virtual ~rel_context_base() {}
+        ~rel_context_base() override {}
         virtual relation_manager & get_rmanager() = 0;
         virtual const relation_manager & get_rmanager() const = 0;
         virtual relation_base & get_relation(func_decl * pred) = 0;
@@ -146,9 +146,9 @@ namespace datalog {
             context const& ctx;
         public:
             contains_pred(context& ctx): ctx(ctx) {}
-            virtual ~contains_pred() {}
+            ~contains_pred() override {}
             
-            virtual bool operator()(expr* e) {
+            bool operator()(expr* e) override {
                 return ctx.is_predicate(e);
             }
         };
@@ -318,7 +318,7 @@ namespace datalog {
            \brief Retrieve predicates
         */
         func_decl_set const& get_predicates() const { return m_preds; }
-	ast_ref_vector const &get_pinned() const {return m_pinned; }
+        ast_ref_vector const &get_pinned() const {return m_pinned; }
 
         bool is_predicate(func_decl* pred) const { return m_preds.contains(pred); }
         bool is_predicate(expr * e) const { return is_app(e) && is_predicate(to_app(e)->get_decl()); }
@@ -331,7 +331,7 @@ namespace datalog {
            names. Generally, the names coming from the parses are registered here.
         */
         func_decl * try_get_predicate_decl(symbol const& pred_name) const {
-            func_decl * res = 0;
+            func_decl * res = nullptr;
             m_preds_by_name.find(pred_name, res);
             return res;
         }        
@@ -341,7 +341,7 @@ namespace datalog {
 
         */
         func_decl * mk_fresh_head_predicate(symbol const & prefix, symbol const & suffix, 
-            unsigned arity, sort * const * domain, func_decl* orig_pred=0);
+            unsigned arity, sort * const * domain, func_decl* orig_pred=nullptr);
 
 
         /**
@@ -351,16 +351,16 @@ namespace datalog {
         /**
            \brief Return number of a symbol in a DK_UINT64 kind sort (\see register_sort() )
          */
-        finite_element get_constant_number(relation_sort srt, uint64 el);
+        finite_element get_constant_number(relation_sort srt, uint64_t el);
 
         /**
            \brief Output name of constant with number \c num in sort \c sort.
         */
-        void print_constant_name(relation_sort sort, uint64 num, std::ostream & out);
+        void print_constant_name(relation_sort sort, uint64_t num, std::ostream & out);
 
-        bool try_get_sort_constant_count(relation_sort srt, uint64 & constant_count);
+        bool try_get_sort_constant_count(relation_sort srt, uint64_t & constant_count);
 
-        uint64 get_sort_size_estimate(relation_sort srt);
+        uint64_t get_sort_size_estimate(relation_sort srt);
 
         /**
            \brief Assign names of variables used in the declaration of a predicate.
@@ -368,7 +368,7 @@ namespace datalog {
            These names are used when printing out the relations to make the output conform 
            to the one of bddbddb.
         */
-        void set_argument_names(const func_decl * pred, svector<symbol> var_names);
+        void set_argument_names(const func_decl * pred, const svector<symbol> & var_names);
         symbol get_argument_name(const func_decl * pred, unsigned arg_index);
 
         void set_predicate_representation(func_decl * pred, unsigned relation_name_cnt, 
@@ -534,7 +534,7 @@ namespace datalog {
            \brief retrieve proof from derivation of the query.
            
            \pre engine == 'pdr'  || engine == 'duality'- this option is only supported
-	   for PDR mode and Duality mode.
+           for PDR mode and Duality mode.
          */
         proof_ref get_proof();
 
@@ -587,6 +587,19 @@ namespace datalog {
         bool result_contains_fact(relation_fact const& f);
 
         rel_context_base* get_rel_context() { ensure_engine(); return m_rel; }
+
+        void add_callback(void *state,
+                          const datalog::t_new_lemma_eh new_lemma_eh,
+                          const datalog::t_predecessor_eh predecessor_eh,
+                          const datalog::t_unfold_eh unfold_eh) {
+            ensure_engine();
+            m_engine->add_callback(state, new_lemma_eh, predecessor_eh, unfold_eh);
+        }
+
+        void add_constraint (expr *c, unsigned lvl){
+            ensure_engine();
+            m_engine->add_constraint(c, lvl);
+        }
 
     private:
 

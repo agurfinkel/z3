@@ -117,7 +117,7 @@ namespace upolynomial {
         numeral_vector    m_sqf_tmp2;
         numeral_vector    m_pw_tmp;
 
-        static bool is_alias(numeral const * p, numeral_vector & buffer) { return buffer.c_ptr() != 0 && buffer.c_ptr() == p; }
+        static bool is_alias(numeral const * p, numeral_vector & buffer) { return buffer.c_ptr() != nullptr && buffer.c_ptr() == p; }
         void neg_core(unsigned sz1, numeral const * p1, numeral_vector & buffer);
         void add_core(unsigned sz1, numeral const * p1, unsigned sz2, numeral const * p2, numeral_vector & buffer);
         void sub_core(unsigned sz1, numeral const * p1, unsigned sz2, numeral const * p2, numeral_vector & buffer);
@@ -153,7 +153,7 @@ namespace upolynomial {
            \brief Set manager as Z_p[X]
         */
         void set_zp(numeral const & p) { m().set_zp(p); }
-        void set_zp(uint64 p) { m().set_zp(p); }
+        void set_zp(uint64_t p) { m().set_zp(p); }
 
         void checkpoint();
 
@@ -434,11 +434,11 @@ namespace upolynomial {
                 m().reset(r[i]);
             }
             for (unsigned i = 0; i < sz; i++) {
-				typename polynomial::monomial * mon = pm.get_monomial(p, i);
-				if (pm.size(mon) == 0) {
+                typename polynomial::monomial * mon = pm.get_monomial(p, i);
+                if (pm.size(mon) == 0) {
                     m().set(r[0], pm.coeff(p, i));
-				} else if (pm.size(mon) == 1 && pm.get_var(mon, 0) == x) {
-					unsigned m_deg_x = pm.degree(mon, 0);
+                } else if (pm.size(mon) == 1 && pm.get_var(mon, 0) == x) {
+                    unsigned m_deg_x = pm.degree(mon, 0);
                     m().set(r[m_deg_x], pm.coeff(p, i));
                 }
             }
@@ -486,7 +486,7 @@ namespace upolynomial {
         core_manager::scoped_numeral m_p;
     public:
         scoped_set_zp(core_manager & _m, numeral const & p):m(_m), m_modular(m.modular()), m_p(m.m()) {  m_p = m.p(); m.set_zp(p); }
-        scoped_set_zp(core_manager & _m, uint64 p):m(_m), m_modular(m.modular()), m_p(m.m()) {  m_p = m.p(); m.set_zp(p); }
+        scoped_set_zp(core_manager & _m, uint64_t p):m(_m), m_modular(m.modular()), m_p(m.m()) {  m_p = m.p(); m.set_zp(p); }
         ~scoped_set_zp() {  if (m_modular) m.set_zp(m_p); else m.set_z(); }
     };
 

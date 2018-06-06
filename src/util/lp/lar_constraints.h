@@ -1,7 +1,22 @@
-/*
-  Copyright (c) 2017 Microsoft Corporation
-  Author: Lev Nachmanson
-*/
+/*++
+Copyright (c) 2017 Microsoft Corporation
+
+Module Name:
+
+    <name>
+
+Abstract:
+
+    <abstract>
+
+Author:
+
+    Lev Nachmanson (levnach)
+
+Revision History:
+
+
+--*/
 
 #pragma once
 #include "util/vector.h"
@@ -12,7 +27,7 @@
 #include "util/lp/lp_utils.h"
 #include "util/lp/ul_pair.h"
 #include "util/lp/lar_term.h"
-namespace lean {
+namespace lp {
 inline lconstraint_kind flip_kind(lconstraint_kind t) {
     return static_cast<lconstraint_kind>( - static_cast<int>(t));
 }
@@ -25,7 +40,7 @@ inline std::string lconstraint_kind_string(lconstraint_kind t) {
     case GT: return std::string(">");
     case EQ: return std::string("=");
     }
-    lean_unreachable();
+    SASSERT(false);
     return std::string(); // it is unreachable
 }
 
@@ -44,24 +59,24 @@ public:
 
 struct lar_var_constraint: public lar_base_constraint {
     unsigned m_j;
-    vector<std::pair<mpq, var_index>> get_left_side_coefficients() const {
+    vector<std::pair<mpq, var_index>> get_left_side_coefficients() const override {
         vector<std::pair<mpq, var_index>> ret;
         ret.push_back(std::make_pair(one_of_type<mpq>(), m_j));
         return ret;
     }
-    unsigned size() const { return 1;}
+    unsigned size() const override { return 1;}
     lar_var_constraint(unsigned j, lconstraint_kind kind, const mpq& right_side) : lar_base_constraint(kind, right_side), m_j(j) { }
 };
 
 
 struct lar_term_constraint: public lar_base_constraint {
     const lar_term * m_term;
-    vector<std::pair<mpq, var_index>> get_left_side_coefficients() const {
+    vector<std::pair<mpq, var_index>> get_left_side_coefficients() const override {
         return m_term->coeffs_as_vector();
     }
-    unsigned size() const { return m_term->size();}
+    unsigned size() const override { return m_term->size();}
     lar_term_constraint(const lar_term *t, lconstraint_kind kind, const mpq& right_side) : lar_base_constraint(kind, right_side), m_term(t) { }
-    virtual mpq get_free_coeff_of_left_side() const { return m_term->m_v;}
+    mpq get_free_coeff_of_left_side() const override { return m_term->m_v;}
 
 };
 
@@ -74,13 +89,13 @@ public:
         :  lar_base_constraint(kind, right_side), m_coeffs(left_side) {}
     
     lar_constraint(const lar_base_constraint & c) {
-        lean_assert(false); // should not be called : todo!
+        SASSERT(false); // should not be called : todo!
     }
 
-    unsigned size() const {
+    unsigned size() const override {
         return static_cast<unsigned>(m_coeffs.size());
     }
 
-    vector<std::pair<mpq, var_index>> get_left_side_coefficients() const { return m_coeffs; }
+    vector<std::pair<mpq, var_index>> get_left_side_coefficients() const override { return m_coeffs; }
 };
 }
