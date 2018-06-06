@@ -188,9 +188,7 @@ namespace datalog {
         if (m_trail.get_num_scopes() == 0) {
             throw default_exception("there are no backtracking points to pop to");
         }
-        if (m_engine.get() && get_engine() != DUALITY_ENGINE) {
-            throw default_exception("pop operation is only supported by duality engine");
-        }
+        throw default_exception("pop operation is not supported");
         m_trail.pop_scope(1); 
     }
 
@@ -576,14 +574,8 @@ namespace datalog {
             m_rule_properties.check_infinite_sorts();
             break;
         case SPACER_ENGINE:
-        case PDR_ENGINE:
             m_rule_properties.collect(r);
             m_rule_properties.check_existential_tail();
-            m_rule_properties.check_for_negated_predicates();
-            m_rule_properties.check_uninterpreted_free();
-            break;
-        case QPDR_ENGINE:
-            m_rule_properties.collect(r);
             m_rule_properties.check_for_negated_predicates();
             m_rule_properties.check_uninterpreted_free();
             break;
@@ -597,11 +589,6 @@ namespace datalog {
             m_rule_properties.check_for_negated_predicates();
             break;         
         case TAB_ENGINE:
-            m_rule_properties.collect(r);
-            m_rule_properties.check_existential_tail();
-            m_rule_properties.check_for_negated_predicates();
-            break;
-        case DUALITY_ENGINE:
             m_rule_properties.collect(r);
             m_rule_properties.check_existential_tail();
             m_rule_properties.check_for_negated_predicates();
@@ -781,19 +768,14 @@ namespace datalog {
         DL_ENGINE get_engine() const { return m_engine_type; }
 
         void operator()(expr* e) {
-            if (is_quantifier(e)) {
-                m_engine_type = QPDR_ENGINE;
+            if (a.is_int_real(e)) {
+                m_engine_type = SPACER_ENGINE;
             }
-            else if (m_engine_type != QPDR_ENGINE) {
-                if (a.is_int_real(e)) {
-                    m_engine_type = PDR_ENGINE;
-                }
-                else if (is_var(e) && m.is_bool(e)) {
-                    m_engine_type = PDR_ENGINE;
-                }
-                else if (dt.is_datatype(m.get_sort(e))) {
-                    m_engine_type = PDR_ENGINE;
-                }
+            else if (is_var(e) && m.is_bool(e)) {
+                m_engine_type = SPACER_ENGINE;
+            }
+            else if (dt.is_datatype(m.get_sort(e))) {
+                m_engine_type = SPACER_ENGINE;
             }
         }
     };
@@ -810,12 +792,6 @@ namespace datalog {
         else if (e == symbol("spacer")) {
             m_engine_type = SPACER_ENGINE;
         }
-        else if (e == symbol("pdr")) {
-            m_engine_type = PDR_ENGINE;
-        }
-        else if (e == symbol("qpdr")) {
-            m_engine_type = QPDR_ENGINE;
-        }
         else if (e == symbol("bmc")) {
             m_engine_type = BMC_ENGINE;
         }
@@ -827,9 +803,6 @@ namespace datalog {
         }
         else if (e == symbol("clp")) {
             m_engine_type = CLP_ENGINE;
-        }
-        else if (e == symbol("duality")) {
-            m_engine_type = DUALITY_ENGINE;
         }
         else if (e == symbol("ddnf")) {
             m_engine_type = DDNF_ENGINE;
@@ -866,19 +839,12 @@ namespace datalog {
         switch (get_engine()) {
         case DATALOG_ENGINE:
         case SPACER_ENGINE:
-        case PDR_ENGINE:
-        case QPDR_ENGINE:
         case BMC_ENGINE:
         case QBMC_ENGINE:
         case TAB_ENGINE:
         case CLP_ENGINE:
         case DDNF_ENGINE:
             flush_add_rules();
-            break;
-        case DUALITY_ENGINE:
-            // this lets us use duality with SAS 2013 abstraction
-            if(quantify_arrays())
-              flush_add_rules();
             break;
         default:
             UNREACHABLE();
@@ -895,8 +861,6 @@ namespace datalog {
         switch (get_engine()) {
         case DATALOG_ENGINE:
         case SPACER_ENGINE:
-        case PDR_ENGINE:
-        case QPDR_ENGINE:
         case BMC_ENGINE:
         case QBMC_ENGINE:
         case TAB_ENGINE:
