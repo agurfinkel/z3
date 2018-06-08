@@ -50,7 +50,6 @@ public:
     expr_ref convert_bv2rm(expr * eval_v);
     expr_ref convert_bv2rm(model_core * mc, app * val);
 
-    void convert(model_core * mc, model_core * float_mdl);
     void convert_consts(model_core * mc, model_core * target_model, obj_hashtable<func_decl> & seen);
     void convert_rm_consts(model_core * mc, model_core * target_model, obj_hashtable<func_decl> & seen);
     void convert_min_max_specials(model_core * mc, model_core * target_model, obj_hashtable<func_decl> & seen);
@@ -65,7 +64,7 @@ public:
         func_interp * new_float_fi;
         func_decl * bv_fd;
         expr_ref result;
-        array_model(ast_manager & m) : new_float_fd(0), new_float_fi(0), bv_fd(0), result(m) {}
+        array_model(ast_manager & m) : new_float_fd(nullptr), new_float_fi(nullptr), bv_fd(nullptr), result(m) {}
     };
 
     array_model convert_array_func_interp(model_core * mc, func_decl * f, func_decl * bv_f);

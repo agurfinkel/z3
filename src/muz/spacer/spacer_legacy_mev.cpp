@@ -5,34 +5,31 @@ Copyright (c) 2017 Arie Gurfinkel
 */
 
 #include <sstream>
-#include "arith_simplifier_plugin.h"
-#include "array_decl_plugin.h"
-#include "ast_pp.h"
-#include "basic_simplifier_plugin.h"
-#include "bv_simplifier_plugin.h"
-#include "bool_rewriter.h"
-#include "dl_util.h"
-#include "for_each_expr.h"
-#include "smt_params.h"
-#include "model.h"
-#include "ref_vector.h"
-#include "rewriter.h"
-#include "rewriter_def.h"
-#include "util.h"
-#include "spacer_manager.h"
-#include "spacer_legacy_mev.h"
-#include "spacer_util.h"
-#include "arith_decl_plugin.h"
-#include "expr_replacer.h"
-#include "model_smt2_pp.h"
-#include "scoped_proof.h"
-#include "qe_lite.h"
-#include "spacer_qe_project.h"
-#include "model_pp.h"
-#include "expr_safe_replace.h"
+#include "ast/array_decl_plugin.h"
+#include "ast/ast_pp.h"
+#include "ast/rewriter/bool_rewriter.h"
+#include "muz/base/dl_util.h"
+#include "ast/for_each_expr.h"
+#include "smt/params/smt_params.h"
+#include "model/model.h"
+#include "util/ref_vector.h"
+#include "ast/rewriter/rewriter.h"
+#include "ast/rewriter/rewriter_def.h"
+#include "util/util.h"
+#include "muz/spacer/spacer_manager.h"
+#include "muz/spacer/spacer_legacy_mev.h"
+#include "muz/spacer/spacer_util.h"
+#include "ast/arith_decl_plugin.h"
+#include "ast/rewriter/expr_replacer.h"
+#include "model/model_smt2_pp.h"
+#include "ast/scoped_proof.h"
+#include "qe/qe_lite.h"
+#include "muz/spacer/spacer_qe_project.h"
+#include "model/model_pp.h"
+#include "ast/rewriter/expr_safe_replace.h"
 
-#include "datatype_decl_plugin.h"
-#include "bv_decl_plugin.h"
+#include "ast/datatype_decl_plugin.h"
+#include "ast/bv_decl_plugin.h"
 
 namespace old {
 
@@ -83,7 +80,7 @@ void model_evaluator::reset()
     m_visited.reset();
     m_numbers.reset();
     m_refs.reset();
-    m_model = 0;
+    m_model = nullptr;
 }
 
 
@@ -141,7 +138,6 @@ void model_evaluator::process_formula(app* e, ptr_vector<expr>& todo, ptr_vector
         case OP_FALSE:
             break;
         case OP_EQ:
-        case OP_IFF:
             if (args[0] == args[1]) {
                 SASSERT(v);
                 // no-op
@@ -636,10 +632,6 @@ void model_evaluator::eval_basic(app* e)
             SASSERT(is_x(arg1) || is_x(arg2));
             set_x(e);
         }
-        break;
-    case OP_IFF:
-        VERIFY(m.is_iff(e, arg1, arg2));
-        eval_eq(e, arg1, arg2);
         break;
     case OP_XOR:
         VERIFY(m.is_xor(e, arg1, arg2));

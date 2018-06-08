@@ -1,7 +1,22 @@
-/*
-  Copyright (c) 2017 Microsoft Corporation
-  Author: Lev Nachmanson
-*/
+/*++
+Copyright (c) 2017 Microsoft Corporation
+
+Module Name:
+
+    <name>
+
+Abstract:
+
+    <abstract>
+
+Author:
+
+    Lev Nachmanson (levnach)
+
+Revision History:
+
+
+--*/
 
 #pragma once
 #include "util/vector.h"
@@ -20,7 +35,7 @@
 #include "util/lp/eta_matrix.h"
 #include "util/lp/binary_heap_upair_queue.h"
 #include "util/lp/sparse_matrix.h"
-namespace lean {
+namespace lp {
 template <typename T, typename X>
 class square_dense_submatrix : public tail_matrix<T, X> {
     // the submatrix uses the permutations of the parent matrix to access the elements
@@ -30,11 +45,11 @@ class square_dense_submatrix : public tail_matrix<T, X> {
         ref(unsigned i, square_dense_submatrix & s) :
             m_i_offset((i - s.m_index_start) * s.m_dim), m_s(s){}
         T & operator[] (unsigned j) {
-            lean_assert(j >= m_s.m_index_start);
+            SASSERT(j >= m_s.m_index_start);
             return m_s.m_v[m_i_offset + m_s.adjust_column(j) - m_s.m_index_start];
         }
         const T & operator[] (unsigned j) const {
-            lean_assert(j >= m_s.m_index_start);
+            SASSERT(j >= m_s.m_index_start);
             return m_s.m_v[m_i_offset + m_s.adjust_column(j) - m_s.m_index_start];
         }
     };
@@ -55,11 +70,11 @@ public:
 
     void init(sparse_matrix<T, X> *parent_matrix, unsigned index_start);
 
-    bool is_dense() const { return true; }
+    bool is_dense() const override { return true; }
     
     ref operator[] (unsigned i) {
-        lean_assert(i >= m_index_start);
-        lean_assert(i < m_parent->dimension());
+        SASSERT(i >= m_index_start);
+        SASSERT(i < m_parent->dimension());
         return ref(i, *this);
     }
 
@@ -122,13 +137,13 @@ public:
 
     bool is_L_matrix() const;
 
-    void apply_from_left_to_T(indexed_vector<T> & w, lp_settings & settings) {
+    void apply_from_left_to_T(indexed_vector<T> & w, lp_settings & settings) override {
         apply_from_left_local(w, settings);
     }
 
     
     
-    void apply_from_right(indexed_vector<T> & w) {
+    void apply_from_right(indexed_vector<T> & w) override {
 #if 1==0
         indexed_vector<T> wcopy = w;
         apply_from_right(wcopy.m_data);
@@ -148,7 +163,7 @@ public:
                 }
             }
         }
-        lean_assert(wcopy.is_OK());
+        SASSERT(wcopy.is_OK());
         apply_from_right(w.m_data);
         w.m_index.clear();
         if (numeric_traits<T>::precise()) {
@@ -167,11 +182,11 @@ public:
             }
         }
 #else
-        lean_assert(w.is_OK());
-        lean_assert(m_work_vector.is_OK());
+        SASSERT(w.is_OK());
+        SASSERT(m_work_vector.is_OK());
         m_work_vector.resize(w.data_size());
         m_work_vector.clear();
-        lean_assert(m_work_vector.is_OK());
+        SASSERT(m_work_vector.is_OK());
         unsigned end = m_index_start + m_dim;
         for (unsigned k : w.m_index) {
             // find j such that k = adjust_row_inverse(j)
@@ -188,22 +203,22 @@ public:
             }
         }
         m_work_vector.clean_up();
-        lean_assert(m_work_vector.is_OK());
+        SASSERT(m_work_vector.is_OK());
         w = m_work_vector;
 #endif
     }
-    void apply_from_left(vector<X> & w, lp_settings & /*settings*/) {
+    void apply_from_left(vector<X> & w, lp_settings & /*settings*/) override {
         apply_from_left_to_vector(w);// , settings);
     }
 
-    void apply_from_right(vector<T> & w);
+    void apply_from_right(vector<T> & w) override;
 
-#ifdef LEAN_DEBUG
-    T get_elem (unsigned i, unsigned j) const;
-    unsigned row_count() const { return m_parent->row_count();}
-    unsigned column_count() const { return row_count();}
-    void set_number_of_rows(unsigned) {}
-    void set_number_of_columns(unsigned) {};
+#ifdef Z3DEBUG
+    T get_elem (unsigned i, unsigned j) const override;
+    unsigned row_count() const override { return m_parent->row_count();}
+    unsigned column_count() const override { return row_count();}
+    void set_number_of_rows(unsigned) override {}
+    void set_number_of_columns(unsigned) override {}
 #endif
     void conjugate_by_permutation(permutation_matrix<T, X> & q);
 };

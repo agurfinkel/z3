@@ -33,17 +33,17 @@ namespace smt {
         enode *           m_target;
         eq_justification  m_justification;
         trans_justification():
-            m_target(0),
+            m_target(nullptr),
             m_justification(null_eq_justification) {
         }
     };
 
     /** \ brief Use sparse maps in SMT solver.
 
-	Define this to use hash maps rather than vectors over ast
-	nodes. This is useful in the case there are many solvers, each
-	referencing few nodes from a large ast manager. There is some
-	unknown performance penalty for this. */
+    Define this to use hash maps rather than vectors over ast
+    nodes. This is useful in the case there are many solvers, each
+    referencing few nodes from a large ast manager. There is some
+    unknown performance penalty for this. */
 
     // #define SPARSE_MAP
 
@@ -116,7 +116,7 @@ namespace smt {
         
 
         theory_var_list * get_th_var_list() { 
-            return m_th_var_list.get_th_var() == null_theory_var ? 0 : &m_th_var_list; 
+            return m_th_var_list.get_th_var() == null_theory_var ? nullptr : &m_th_var_list;
         }
 
         friend class set_merge_tf_trail;
@@ -216,6 +216,15 @@ namespace smt {
             return m_args;
         }
 
+        class args {
+            enode const& n;
+        public:
+            args(enode const& n):n(n) {}
+            args(enode const* n):n(*n) {}
+            enode_vector::const_iterator begin() const { return n.get_args(); }
+            enode_vector::const_iterator end() const { return n.get_args() + n.get_num_args(); }
+        };
+
         // unsigned get_id() const { 
         //    return m_id; 
         // }
@@ -285,6 +294,16 @@ namespace smt {
             return m_commutative;
         }
 
+        class parents {
+            enode const& n;
+        public:
+            parents(enode const& _n):n(_n) {}
+            parents(enode const* _n):n(*_n) {}
+            enode_vector::const_iterator begin() const { return n.begin_parents(); }
+            enode_vector::const_iterator end() const { return n.end_parents(); }
+        };
+
+
         unsigned get_num_parents() const {
             return m_parents.size();
         }
@@ -306,7 +325,7 @@ namespace smt {
         }
         
         theory_var_list const * get_th_var_list() const { 
-            return m_th_var_list.get_th_var() == null_theory_var ? 0 : &m_th_var_list; 
+            return m_th_var_list.get_th_var() == null_theory_var ? nullptr : &m_th_var_list;
         }
 
         bool has_th_vars() const {

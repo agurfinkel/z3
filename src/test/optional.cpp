@@ -18,6 +18,7 @@ Revision History:
 --*/
 #include "util/trace.h"
 #include "util/debug.h"
+#include "util/memory_manager.h"
 #include "util/optional.h"
 
 static void tst1() {
@@ -35,11 +36,11 @@ struct OptFoo {
     int m_y;
 
     OptFoo(int x, int y):m_x(x), m_y(y) {
-	TRACE("optional", tout << "OptFoo created: " << m_x << " : " << m_y << "\n";);
+    TRACE("optional", tout << "OptFoo created: " << m_x << " : " << m_y << "\n";);
     }
 
     ~OptFoo() {
-	TRACE("optional", tout << "OptFoo deleted: " << m_x << " : " << m_y << "\n";);
+    TRACE("optional", tout << "OptFoo deleted: " << m_x << " : " << m_y << "\n";);
     }
 };
 

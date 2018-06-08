@@ -15,21 +15,22 @@ Author:
 Notes:
 
 --*/
-#include "cmd_context/cmd_context.h"
-#include"version.h"
+#include "util/gparams.h"
+#include "util/env_params.h"
+#include "util/version.h"
 #include "ast/ast_smt_pp.h"
 #include "ast/ast_smt2_pp.h"
+#include "ast/ast_pp_dot.h"
 #include "ast/ast_pp.h"
-#include "model/model_smt2_pp.h"
 #include "ast/array_decl_plugin.h"
 #include "ast/pp.h"
+#include "ast/well_sorted.h"
+#include "ast/pp_params.hpp"
+#include "model/model_smt2_pp.h"
+#include "cmd_context/cmd_context.h"
 #include "cmd_context/cmd_util.h"
 #include "cmd_context/simplify_cmd.h"
 #include "cmd_context/eval_cmd.h"
-#include "util/gparams.h"
-#include "util/env_params.h"
-#include "ast/well_sorted.h"
-#include"pp_params.hpp"
 
 class help_cmd : public cmd {
     svector<symbol> m_cmds;
@@ -48,14 +49,14 @@ class help_cmd : public cmd {
 
 public:
     help_cmd():cmd("help") {}
-    virtual char const * get_usage() const { return "<symbol>*"; }
-    virtual char const * get_descr(cmd_context & ctx) const { return "print this help."; }
-    virtual unsigned get_arity() const { return VAR_ARITY; }
-    virtual void prepare(cmd_context & ctx) { m_cmds.reset(); }
-    virtual cmd_arg_kind next_arg_kind(cmd_context & ctx) const { return CPK_SYMBOL; }
-    virtual void set_next_arg(cmd_context & ctx, symbol const & s) {
+    char const * get_usage() const override { return "<symbol>*"; }
+    char const * get_descr(cmd_context & ctx) const override { return "print this help."; }
+    unsigned get_arity() const override { return VAR_ARITY; }
+    void prepare(cmd_context & ctx) override { m_cmds.reset(); }
+    cmd_arg_kind next_arg_kind(cmd_context & ctx) const override { return CPK_SYMBOL; }
+    void set_next_arg(cmd_context & ctx, symbol const & s) override {
         cmd * c = ctx.find_cmd(s);
-        if (c == 0) {
+        if (c == nullptr) {
             std::string err_msg("unknown command '");
             err_msg = err_msg + s.bare_str() + "'";
             throw cmd_exception(err_msg);
@@ -68,7 +69,7 @@ public:
         bool operator()(named_cmd const & c1, named_cmd const & c2) const { return c1.first.str() < c2.first.str(); }
     };
 
-    virtual void execute(cmd_context & ctx) {
+    void execute(cmd_context & ctx) override {
         ctx.regular_stream() << "\"";
         if (m_cmds.empty()) {
             vector<named_cmd> cmds;
@@ -79,19 +80,15 @@ public:
             }
             // named_cmd_lt is not a total order for commands, but this is irrelevant for Linux x Windows behavior
             std::sort(cmds.begin(), cmds.end(), named_cmd_lt());
-            vector<named_cmd>::const_iterator it2  = cmds.begin();
-            vector<named_cmd>::const_iterator end2 = cmds.end();
-            for (; it2 != end2; ++it2) {
-                display_cmd(ctx, it2->first, it2->second);
+            for (named_cmd const& nc : cmds) {
+                display_cmd(ctx, nc.first, nc.second);
             }
         }
         else {
-            svector<symbol>::const_iterator it  = m_cmds.begin();
-            svector<symbol>::const_iterator end = m_cmds.end();
-            for (; it != end; ++it) {
-                cmd * c = ctx.find_cmd(*it);
+            for (symbol const& s : m_cmds) {
+                cmd * c = ctx.find_cmd(s);
                 SASSERT(c);
-                display_cmd(ctx, *it, c);
+                display_cmd(ctx, s, c);
             }
         }
         ctx.regular_stream() << "\"\n";
@@ -104,59 +101,59 @@ class get_model_cmd : public cmd {
     unsigned m_index;
 public:
     get_model_cmd(): cmd("get-model"), m_index(0) {}
-    virtual char const * get_usage() const { return "[<index of box objective>]"; }
-    virtual char const * get_descr(cmd_context & ctx) const {
+    char const * get_usage() const override { return "[<index of box objective>]"; }
+    char const * get_descr(cmd_context & ctx) const override {
         return "retrieve model for the last check-sat command.\nSupply optional index if retrieving a model corresponding to a box optimization objective";
     }
-    virtual unsigned get_arity() const { return VAR_ARITY; }
-    virtual cmd_arg_kind next_arg_kind(cmd_context & ctx) const { return CPK_UINT; }
-    virtual void set_next_arg(cmd_context & ctx, unsigned index) { m_index = index; }
-    virtual void execute(cmd_context & ctx) {
-        if (!ctx.is_model_available() || ctx.get_check_sat_result() == 0)
-            throw cmd_exception("model is not available");
+
+    unsigned get_arity() const override { return VAR_ARITY; }
+    cmd_arg_kind next_arg_kind(cmd_context & ctx) const override { return CPK_UINT; }
+    void set_next_arg(cmd_context & ctx, unsigned index) override { m_index = index; }
+    void execute(cmd_context & ctx) override {
         model_ref m;
+        if (ctx.ignore_check())
+            return;
+        if (!ctx.is_model_available(m) || !ctx.get_check_sat_result())
+            throw cmd_exception("model is not available");
         if (m_index > 0 && ctx.get_opt()) {
             ctx.get_opt()->get_box_model(m, m_index);
         }
-        else {
-            ctx.get_check_sat_result()->get_model(m);
-        }
         ctx.display_model(m);
     }
-    virtual void reset(cmd_context& ctx) {
+    void reset(cmd_context& ctx) override {
         m_index = 0;
     }
 };
 
 
 ATOMIC_CMD(get_assignment_cmd, "get-assignment", "retrieve assignment", {
-    if (!ctx.is_model_available() || ctx.get_check_sat_result() == 0)
-        throw cmd_exception("model is not available");
     model_ref m;
-    ctx.get_check_sat_result()->get_model(m);
+    if (!ctx.is_model_available(m) || ctx.get_check_sat_result() == 0)
+        throw cmd_exception("model is not available");
     ctx.regular_stream() << "(";
-    dictionary<cmd_context::macro> const & macros = ctx.get_macros();
-    dictionary<cmd_context::macro>::iterator it  = macros.begin();
-    dictionary<cmd_context::macro>::iterator end = macros.end();
-    for (bool first = true; it != end; ++it) {
-        symbol const & name = (*it).m_key;
-        cmd_context::macro const & _m    = (*it).m_value;
-        if (_m.first == 0 && ctx.m().is_bool(_m.second)) {
-            expr_ref val(ctx.m());
-            m->eval(_m.second, val, true);
-            if (ctx.m().is_true(val) || ctx.m().is_false(val)) {
-                if (first)
-                    first = false;
-                else
-                    ctx.regular_stream() << " ";
-                ctx.regular_stream() << "(";
-                if (is_smt2_quoted_symbol(name)) {
-                    ctx.regular_stream() << mk_smt2_quoted_symbol(name);
+    dictionary<macro_decls> const & macros = ctx.get_macros();
+    bool first = true;
+    for (auto const& kv : macros) {
+        symbol const & name = kv.m_key;
+        macro_decls const & _m    = kv.m_value;
+        for (auto md : _m) {
+            if (md.m_domain.size() == 0 && ctx.m().is_bool(md.m_body)) {
+                expr_ref val(ctx.m());
+                m->eval(md.m_body, val, true);
+                if (ctx.m().is_true(val) || ctx.m().is_false(val)) {
+                    if (first)
+                        first = false;
+                    else
+                        ctx.regular_stream() << " ";
+                    ctx.regular_stream() << "(";
+                    if (is_smt2_quoted_symbol(name)) {
+                        ctx.regular_stream() << mk_smt2_quoted_symbol(name);
+                    }
+                    else {
+                        ctx.regular_stream() << name;
+                    }
+                    ctx.regular_stream() << " " << (ctx.m().is_true(val) ? "true" : "false") << ")";
                 }
-                else {
-                    ctx.regular_stream() << name;
-                }
-                ctx.regular_stream() << " " << (ctx.m().is_true(val) ? "true" : "false") << ")";
             }
         }
     }
@@ -168,10 +165,10 @@ class cmd_is_declared : public ast_smt_pp::is_declared {
 public:
     cmd_is_declared(cmd_context& ctx): m_ctx(ctx) {}
 
-    virtual bool operator()(func_decl* d) const {
+    bool operator()(func_decl* d) const override {
         return m_ctx.is_func_decl(d->get_name());
     }
-    virtual bool operator()(sort* s) const {
+    bool operator()(sort* s) const override {
         return m_ctx.is_sort_decl(s->get_name());
     }
 };
@@ -205,18 +202,37 @@ ATOMIC_CMD(get_proof_cmd, "get-proof", "retrieve proof", {
     }
 });
 
+ATOMIC_CMD(get_proof_graph_cmd, "get-proof-graph", "retrieve proof and print it in graphviz", {
+    if (!ctx.produce_proofs())
+        throw cmd_exception("proof construction is not enabled, use command (set-option :produce-proofs true)");
+    if (!ctx.has_manager() ||
+        ctx.cs_state() != cmd_context::css_unsat)
+        throw cmd_exception("proof is not available");
+    proof_ref pr(ctx.m());
+    pr = ctx.get_check_sat_result()->get_proof();
+    if (pr == 0)
+        throw cmd_exception("proof is not available");
+    if (ctx.well_sorted_check_enabled() && !is_well_sorted(ctx.m(), pr)) {
+        throw cmd_exception("proof is not well sorted");
+    }
+
+    context_params& params = ctx.params();
+    const std::string& file = params.m_dot_proof_file;
+    std::ofstream out(file);
+    out << ast_pp_dot(pr) << std::endl;
+});
+
 static void print_core(cmd_context& ctx) {
     ptr_vector<expr> core;
     ctx.get_check_sat_result()->get_unsat_core(core);
     ctx.regular_stream() << "(";
-    ptr_vector<expr>::const_iterator it  = core.begin();
-    ptr_vector<expr>::const_iterator end = core.end();
-    for (bool first = true; it != end; ++it) {
+    bool first = true;
+    for (expr* e : core) {
     if (first)
         first = false;
     else
         ctx.regular_stream() << " ";
-    ctx.regular_stream() << mk_ismt2_pp(*it, ctx.m());
+    ctx.regular_stream() << mk_ismt2_pp(e, ctx.m());
     }
     ctx.regular_stream() << ")" << std::endl;
 }
@@ -343,7 +359,7 @@ public:
         m_int_real_coercions(":int-real-coercions"),
         m_reproducible_resource_limit(":reproducible-resource-limit") {
     }
-    virtual ~set_get_option_cmd() {}
+    ~set_get_option_cmd() override {}
 
 };
 
@@ -460,19 +476,19 @@ public:
         m_unsupported(false) {
     }
 
-    virtual char const * get_usage() const { return "<keyword> <value>"; }
+    char const * get_usage() const override { return "<keyword> <value>"; }
 
-    virtual char const * get_descr(cmd_context & ctx) const { return "set configuration option."; }
+    char const * get_descr(cmd_context & ctx) const override { return "set configuration option."; }
 
-    virtual unsigned get_arity() const { return 2; }
+    unsigned get_arity() const override { return 2; }
 
-    virtual void prepare(cmd_context & ctx) { m_unsupported = false; m_option = symbol::null; }
+    void prepare(cmd_context & ctx) override { m_unsupported = false; m_option = symbol::null; }
 
-    virtual cmd_arg_kind next_arg_kind(cmd_context & ctx) const {
+    cmd_arg_kind next_arg_kind(cmd_context & ctx) const override {
         return m_option == symbol::null ? CPK_KEYWORD : CPK_OPTION_VALUE;
     }
 
-    virtual void set_next_arg(cmd_context & ctx, symbol const & opt) {
+    void set_next_arg(cmd_context & ctx, symbol const & opt) override {
         if (m_option == symbol::null) {
             m_option = opt;
         }
@@ -481,12 +497,12 @@ public:
         }
     }
 
-    virtual void set_next_arg(cmd_context & ctx, rational const & val) {
+    void set_next_arg(cmd_context & ctx, rational const & val) override {
         if (m_option == m_random_seed) {
             ctx.set_random_seed(to_unsigned(val));
         }
         else if (m_option == m_reproducible_resource_limit) {
-            ctx.params().m_rlimit = to_unsigned(val);
+            ctx.params().set_rlimit(to_unsigned(val));
         }
         else if (m_option == m_verbosity) {
             set_verbosity_level(to_unsigned(val));
@@ -500,7 +516,7 @@ public:
         }
     }
 
-    virtual void set_next_arg(cmd_context & ctx, char const * value) {
+    void set_next_arg(cmd_context & ctx, char const * value) override {
         if (m_option == m_regular_output_channel) {
             ctx.set_regular_stream(value);
         }
@@ -515,7 +531,7 @@ public:
         }
     }
 
-    virtual void execute(cmd_context & ctx) {
+    void execute(cmd_context & ctx) override {
         if (m_unsupported)
             ctx.print_unsupported(m_option, m_line, m_pos);
         else
@@ -540,11 +556,11 @@ public:
     get_option_cmd():
         set_get_option_cmd("get-option") {
     }
-    virtual char const * get_usage() const { return "<keyword>"; }
-    virtual char const * get_descr(cmd_context & ctx) const { return "get configuration option."; }
-    virtual unsigned get_arity() const { return 1; }
-    virtual cmd_arg_kind next_arg_kind(cmd_context & ctx) const { return CPK_KEYWORD; }
-    virtual void set_next_arg(cmd_context & ctx, symbol const & opt) {
+    char const * get_usage() const override { return "<keyword>"; }
+    char const * get_descr(cmd_context & ctx) const override { return "get configuration option."; }
+    unsigned get_arity() const override { return 1; }
+    cmd_arg_kind next_arg_kind(cmd_context & ctx) const override { return CPK_KEYWORD; }
+    void set_next_arg(cmd_context & ctx, symbol const & opt) override {
         if (opt == m_print_success) {
             print_bool(ctx, ctx.print_success_enabled());
         }
@@ -634,11 +650,11 @@ public:
         m_all_statistics(":all-statistics"),
         m_assertion_stack_levels(":assertion-stack-levels") {
     }
-    virtual char const * get_usage() const { return "<keyword>"; }
-    virtual char const * get_descr(cmd_context & ctx) const { return "get information."; }
-    virtual unsigned get_arity() const { return 1; }
-    virtual cmd_arg_kind next_arg_kind(cmd_context & ctx) const { return CPK_KEYWORD; }
-    virtual void set_next_arg(cmd_context & ctx, symbol const & opt) {
+    char const * get_usage() const override { return "<keyword>"; }
+    char const * get_descr(cmd_context & ctx) const override { return "get information."; }
+    unsigned get_arity() const override { return 1; }
+    cmd_arg_kind next_arg_kind(cmd_context & ctx) const override { return CPK_KEYWORD; }
+    void set_next_arg(cmd_context & ctx, symbol const & opt) override {
         if (opt == m_error_behavior) {
             if (ctx.exit_on_error())
                 ctx.regular_stream() << "(:error-behavior immediate-exit)" << std::endl;
@@ -690,16 +706,16 @@ public:
         m_sat("sat"),
         m_unknown("unknown") {
     }
-    virtual char const * get_usage() const { return "<keyword> <value>"; }
-    virtual char const * get_descr(cmd_context & ctx) const { return "set information."; }
-    virtual unsigned get_arity() const { return 2; }
-    virtual void prepare(cmd_context & ctx) { m_info = symbol::null; }
-    virtual cmd_arg_kind next_arg_kind(cmd_context & ctx) const {
+    char const * get_usage() const override { return "<keyword> <value>"; }
+    char const * get_descr(cmd_context & ctx) const override { return "set information."; }
+    unsigned get_arity() const override { return 2; }
+    void prepare(cmd_context & ctx) override { m_info = symbol::null; }
+    cmd_arg_kind next_arg_kind(cmd_context & ctx) const override {
         return m_info == symbol::null ? CPK_KEYWORD : CPK_OPTION_VALUE;
     }
-    virtual void set_next_arg(cmd_context & ctx, rational const & val) {}
-    virtual void set_next_arg(cmd_context & ctx, char const * val) {}
-    virtual void set_next_arg(cmd_context & ctx, symbol const & s) {
+    void set_next_arg(cmd_context & ctx, rational const & val) override {}
+    void set_next_arg(cmd_context & ctx, char const * val) override {}
+    void set_next_arg(cmd_context & ctx, symbol const & s) override {
         if (m_info == symbol::null) {
             m_info = s;
         }
@@ -720,7 +736,7 @@ public:
             }
         }
     }
-    virtual void execute(cmd_context & ctx) {
+    void execute(cmd_context & ctx) override {
         ctx.print_success();
     }
 };
@@ -743,32 +759,32 @@ public:
         }
         return m_array_fid;
     }
-    virtual char const * get_usage() const { return "<symbol> (<sort>+) <func-decl-ref>"; }
-    virtual char const * get_descr(cmd_context & ctx) const { return "declare a new array map operator with name <symbol> using the given function declaration.\n<func-decl-ref> ::= <symbol>\n                  | (<symbol> (<sort>*) <sort>)\n                  | ((_ <symbol> <numeral>+) (<sort>*) <sort>)\nThe last two cases are used to disumbiguate between declarations with the same name and/or select (indexed) builtin declarations.\nFor more details about the the array map operator, see 'Generalized and Efficient Array Decision Procedures' (FMCAD 2009).\nExample: (declare-map set-union (Int) (or (Bool Bool) Bool))\nDeclares a new function (declare-fun set-union ((Array Int Bool) (Array Int Bool)) (Array Int Bool)).\nThe instance of the map axiom for this new declaration is:\n(forall ((a1 (Array Int Bool)) (a2 (Array Int Bool)) (i Int)) (= (select (set-union a1 a2) i) (or (select a1 i) (select a2 i))))"; }
-    virtual unsigned get_arity() const { return 3; }
-    virtual void prepare(cmd_context & ctx) { m_name = symbol::null; m_domain.reset(); }
-    virtual cmd_arg_kind next_arg_kind(cmd_context & ctx) const {
+    char const * get_usage() const override { return "<symbol> (<sort>+) <func-decl-ref>"; }
+    char const * get_descr(cmd_context & ctx) const override { return "declare a new array map operator with name <symbol> using the given function declaration.\n<func-decl-ref> ::= <symbol>\n                  | (<symbol> (<sort>*) <sort>)\n                  | ((_ <symbol> <numeral>+) (<sort>*) <sort>)\nThe last two cases are used to disumbiguate between declarations with the same name and/or select (indexed) builtin declarations.\nFor more details about the array map operator, see 'Generalized and Efficient Array Decision Procedures' (FMCAD 2009).\nExample: (declare-map set-union (Int) (or (Bool Bool) Bool))\nDeclares a new function (declare-fun set-union ((Array Int Bool) (Array Int Bool)) (Array Int Bool)).\nThe instance of the map axiom for this new declaration is:\n(forall ((a1 (Array Int Bool)) (a2 (Array Int Bool)) (i Int)) (= (select (set-union a1 a2) i) (or (select a1 i) (select a2 i))))"; }
+    unsigned get_arity() const override { return 3; }
+    void prepare(cmd_context & ctx) override { m_name = symbol::null; m_domain.reset(); }
+    cmd_arg_kind next_arg_kind(cmd_context & ctx) const override {
         if (m_name == symbol::null) return CPK_SYMBOL;
         if (m_domain.empty()) return CPK_SORT_LIST;
         return CPK_FUNC_DECL;
     }
-    virtual void set_next_arg(cmd_context & ctx, symbol const & s) { m_name = s; }
-    virtual void set_next_arg(cmd_context & ctx, unsigned num, sort * const * slist) {
+    void set_next_arg(cmd_context & ctx, symbol const & s) override { m_name = s; }
+    void set_next_arg(cmd_context & ctx, unsigned num, sort * const * slist) override {
         if (num == 0)
             throw cmd_exception("invalid map declaration, empty sort list");
         m_domain.append(num, slist);
     }
-    virtual void set_next_arg(cmd_context & ctx, func_decl * f) {
+    void set_next_arg(cmd_context & ctx, func_decl * f) override {
         m_f = f;
         if (m_f->get_arity() == 0)
             throw cmd_exception("invalid map declaration, function declaration must have arity > 0");
     }
-    virtual void reset(cmd_context & ctx) {
+    void reset(cmd_context & ctx) override {
         m_array_fid = null_family_id;
     }
-    virtual void execute(cmd_context & ctx) {
+    void execute(cmd_context & ctx) override {
         psort_decl * array_sort = ctx.find_psort_decl(m_array_sort);
-        if (array_sort == 0)
+        if (array_sort == nullptr)
             throw cmd_exception("Array sort is not available");
         ptr_vector<sort> & array_sort_args = m_domain;
         sort_ref_buffer domain(ctx.m());
@@ -796,11 +812,11 @@ class get_consequences_cmd : public cmd {
     unsigned         m_count;
 public:
     get_consequences_cmd(): cmd("get-consequences"), m_count(0) {}
-    virtual char const * get_usage() const { return "(<boolean-variable>*) (<variable>*)"; }
-    virtual char const * get_descr(cmd_context & ctx) const { return "retrieve consequences that fix values for supplied variables"; }
-    virtual unsigned get_arity() const { return 2; }
-    virtual cmd_arg_kind next_arg_kind(cmd_context & ctx) const { return CPK_EXPR_LIST; }
-    virtual void set_next_arg(cmd_context & ctx, unsigned num, expr * const * tlist) {
+    char const * get_usage() const override { return "(<boolean-variable>*) (<variable>*)"; }
+    char const * get_descr(cmd_context & ctx) const override { return "retrieve consequences that fix values for supplied variables"; }
+    unsigned get_arity() const override { return 2; }
+    cmd_arg_kind next_arg_kind(cmd_context & ctx) const override { return CPK_EXPR_LIST; }
+    void set_next_arg(cmd_context & ctx, unsigned num, expr * const * tlist) override {
         if (m_count == 0) {
             m_assumptions.append(num, tlist);
             ++m_count;
@@ -809,8 +825,8 @@ public:
             m_variables.append(num, tlist);
         }
     }
-    virtual void failure_cleanup(cmd_context & ctx) {}
-    virtual void execute(cmd_context & ctx) {
+    void failure_cleanup(cmd_context & ctx) override {}
+    void execute(cmd_context & ctx) override {
         ast_manager& m = ctx.m();
         expr_ref_vector assumptions(m), variables(m), consequences(m);
         assumptions.append(m_assumptions.size(), m_assumptions.c_ptr());
@@ -818,12 +834,12 @@ public:
         ctx.get_consequences(assumptions, variables, consequences);
         ctx.regular_stream() << consequences << "\n";
     }
-    virtual void prepare(cmd_context & ctx) { reset(ctx); }
+    void prepare(cmd_context & ctx) override { reset(ctx); }
 
-    virtual void reset(cmd_context& ctx) {
+    void reset(cmd_context& ctx) override {
         m_assumptions.reset(); m_variables.reset(); m_count = 0;
     }
-    virtual void finalize(cmd_context & ctx) {}
+    void finalize(cmd_context & ctx) override {}
 };
 
 // provides "help" for builtin cmds
@@ -833,8 +849,8 @@ class builtin_cmd : public cmd {
 public:
     builtin_cmd(char const * name, char const * usage, char const * descr):
         cmd(name), m_usage(usage), m_descr(descr) {}
-    virtual char const * get_usage() const { return m_usage; }
-    virtual char const * get_descr(cmd_context & ctx) const { return m_descr; }
+    char const * get_usage() const override { return m_usage; }
+    char const * get_descr(cmd_context & ctx) const override { return m_descr; }
 };
 
 
@@ -844,6 +860,7 @@ void install_basic_cmds(cmd_context & ctx) {
     ctx.insert(alloc(get_assignment_cmd));
     ctx.insert(alloc(get_assertions_cmd));
     ctx.insert(alloc(get_proof_cmd));
+    ctx.insert(alloc(get_proof_graph_cmd));
     ctx.insert(alloc(get_unsat_core_cmd));
     ctx.insert(alloc(set_option_cmd));
     ctx.insert(alloc(get_option_cmd));
@@ -874,7 +891,7 @@ void install_ext_basic_cmds(cmd_context & ctx) {
     ctx.insert(alloc(echo_cmd));
     ctx.insert(alloc(labels_cmd));
     ctx.insert(alloc(declare_map_cmd));
-    ctx.insert(alloc(builtin_cmd, "reset", 0, "reset the shell (all declarations and assertions will be erased)"));
+    ctx.insert(alloc(builtin_cmd, "reset", nullptr, "reset the shell (all declarations and assertions will be erased)"));
     install_simplify_cmd(ctx);
     install_eval_cmd(ctx);
 }

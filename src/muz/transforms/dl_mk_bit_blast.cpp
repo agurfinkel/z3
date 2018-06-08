@@ -22,9 +22,9 @@ Revision History:
 #include "ast/rewriter/rewriter_def.h"
 #include "ast/ast_pp.h"
 #include "ast/rewriter/expr_safe_replace.h"
-#include "tactic/filter_model_converter.h"
+#include "tactic/generic_model_converter.h"
 #include "muz/transforms/dl_mk_interp_tail_simplifier.h"
-#include "fixedpoint_params.hpp"
+#include "muz/base/fixedpoint_params.hpp"
 #include "ast/scoped_proof.h"
 #include "model/model_v2_pp.h"
 
@@ -59,11 +59,15 @@ namespace datalog {
             m_new_funcs.push_back(new_f);
         }
 
-        virtual model_converter * translate(ast_translation & translator) { 
+        model_converter * translate(ast_translation & translator) override {
             return alloc(bit_blast_model_converter, m);
         }
 
-        virtual void operator()(model_ref & model) {
+        void get_units(obj_map<expr, bool>& units)  override {}
+
+        void display(std::ostream& out) override { out << "(bit-blast-model-converter)\n"; }
+
+        void operator()(model_ref & model) override {
             for (unsigned i = 0; i < m_new_funcs.size(); ++i) {
                 func_decl* p = m_new_funcs[i].get();
                 func_decl* q = m_old_funcs[i].get();
@@ -138,8 +142,8 @@ namespace datalog {
             m_g_vars(m),
             m_old_funcs(m),
             m_new_funcs(m),
-            m_src(0),
-            m_dst(0)
+            m_src(nullptr),
+            m_dst(nullptr)
         {}
 
         ~expand_mkbv_cfg() {}
@@ -186,7 +190,7 @@ namespace datalog {
                     m_g_vars.push_back(m_f_vars.back());
                 }
             }
-            func_decl* g = 0;
+            func_decl* g = nullptr;
             
             if (!m_pred2blast.find(f, g)) {
                 
@@ -202,7 +206,7 @@ namespace datalog {
                 m_dst->inherit_predicate(*m_src, f, g);
             }
             result = m.mk_app(g, m_args.size(), m_args.c_ptr());
-            result_pr = 0;
+            result_pr = nullptr;
             return BR_DONE;
         }
     };
@@ -262,7 +266,7 @@ namespace datalog {
         rule_set * operator()(rule_set const & source) {
             // TODO pc
             if (!m_context.xform_bit_blast()) {
-                return 0;
+                return nullptr;
             }
             rule_manager& rm = m_context.get_rule_manager();
             unsigned sz = source.get_num_rules();
@@ -297,12 +301,12 @@ namespace datalog {
             }
             
             if (m_context.get_model_converter()) {               
-                filter_model_converter* fmc = alloc(filter_model_converter, m);
+                generic_model_converter* fmc = alloc(generic_model_converter, m, "dl_mk_bit_blast");
                 bit_blast_model_converter* bvmc = alloc(bit_blast_model_converter, m);
                 func_decl_ref_vector const& old_funcs = m_rewriter.m_cfg.old_funcs();
                 func_decl_ref_vector const& new_funcs = m_rewriter.m_cfg.new_funcs();
                 for (unsigned i = 0; i < old_funcs.size(); ++i) {
-                    fmc->insert(new_funcs[i]);
+                    fmc->hide(new_funcs[i]);
                     bvmc->insert(old_funcs[i], new_funcs[i]);
                 }
                 m_context.add_model_converter(concat(bvmc, fmc));

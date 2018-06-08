@@ -90,7 +90,7 @@ void model_implicant::reset() {
     m_visited.reset();
     m_numbers.reset();
     m_refs.reset();
-    m_model = 0;
+    m_model = nullptr;
 }
 
 expr_ref_vector model_implicant::minimize_model(ptr_vector<expr> const & formulas, model_ref& mdl) {
@@ -172,7 +172,6 @@ void model_implicant::process_formula(app* e, ptr_vector<expr>& todo, ptr_vector
         case OP_FALSE:
             break;
         case OP_EQ:
-        case OP_IFF:
             if (args[0] == args[1]) {
                 SASSERT(v);
                 // no-op                    
@@ -666,8 +665,8 @@ void model_implicant::eval_eq(app* e, expr* arg1, expr* arg2) {
 }
 
 void model_implicant::eval_basic(app* e) {
-    expr* arg1 = 0, *arg2 = 0;
-    expr *argCond = 0, *argThen = 0, *argElse = 0, *arg = 0;
+    expr* arg1 = nullptr, *arg2 = nullptr;
+    expr *argCond = nullptr, *argThen = nullptr, *argElse = nullptr, *arg = nullptr;
     bool has_x = false;
     unsigned arity = e->get_num_args();
     switch(e->get_decl_kind()) {
@@ -741,10 +740,6 @@ void model_implicant::eval_basic(app* e) {
             SASSERT(is_x(arg1) || is_x(arg2));
             set_x(e);
         }
-        break;
-    case OP_IFF: 
-        VERIFY(m.is_iff(e, arg1, arg2));
-        eval_eq(e, arg1, arg2);
         break;
     case OP_ITE: 
         VERIFY(m.is_ite(e, argCond, argThen, argElse));

@@ -33,9 +33,11 @@
 #include <fstream>
 #include <iostream>
 #include <ostream>
+#include <sstream>
 
 #include "ast/expr_abstract.h"
 #include "util/params.h"
+#include "ast/used_vars.h"
 
 
 using namespace stl_ext;
@@ -60,7 +62,7 @@ iz3mgr::ast iz3mgr::make(opr op, int n, raw_ast **args){
     case Ite:      return mki(m_basic_fid,OP_ITE,n,args);
     case And:      return mki(m_basic_fid,OP_AND,n,args);
     case Or:       return mki(m_basic_fid,OP_OR,n,args);
-    case Iff:      return mki(m_basic_fid,OP_IFF,n,args);
+    case Iff:      return mki(m_basic_fid,OP_EQ,n,args);
     case Xor:      return mki(m_basic_fid,OP_XOR,n,args);
     case Not:      return mki(m_basic_fid,OP_NOT,n,args);
     case Implies:  return mki(m_basic_fid,OP_IMPLIES,n,args);
@@ -100,7 +102,7 @@ iz3mgr::ast iz3mgr::make(opr op, int n, raw_ast **args){
 }
 
 iz3mgr::ast iz3mgr::mki(family_id fid, decl_kind dk, int n, raw_ast **args){
-    return cook(m().mk_app(fid, dk, 0, 0, n, (expr **)args));        
+    return cook(m().mk_app(fid, dk, 0, nullptr, n, (expr **)args));
 }
 
 iz3mgr::ast iz3mgr::make(opr op, const std::vector<ast> &args){
@@ -109,11 +111,11 @@ iz3mgr::ast iz3mgr::make(opr op, const std::vector<ast> &args){
         a.resize(args.size());
     for(unsigned i = 0; i < args.size(); i++)
         a[i] = args[i].raw();
-    return make(op,args.size(), args.size() ? &a[0] : 0);
+    return make(op,args.size(), args.size() ? &a[0] : nullptr);
 }
 
 iz3mgr::ast iz3mgr::make(opr op){
-    return make(op,0,0);
+    return make(op,0,nullptr);
 }
 
 iz3mgr::ast iz3mgr::make(opr op, const ast &arg0){
@@ -146,11 +148,11 @@ iz3mgr::ast iz3mgr::make(symb sym, const std::vector<ast> &args){
         a.resize(args.size());
     for(unsigned i = 0; i < args.size(); i++)
         a[i] = args[i].raw();
-    return make(sym,args.size(), args.size() ? &a[0] : 0);
+    return make(sym,args.size(), args.size() ? &a[0] : nullptr);
 }
 
 iz3mgr::ast iz3mgr::make(symb sym){
-    return make(sym,0,0);
+    return make(sym,0,nullptr);
 }
 
 iz3mgr::ast iz3mgr::make(symb sym, const ast &arg0){
@@ -199,8 +201,8 @@ iz3mgr::ast iz3mgr::make_quant(opr op, const std::vector<ast> &bvs, ast &body){
         0, 
         symbol("itp"),
         symbol(),
-        0, 0,
-        0, 0
+        0, nullptr,
+        0, nullptr
                                );
     return cook(result.get());
 }
@@ -373,7 +375,6 @@ iz3mgr::opr iz3mgr::op(const ast &t){
             case OP_ITE:      return Ite;
             case OP_AND:      return And;
             case OP_OR:       return Or;
-            case OP_IFF:      return Iff;
             case OP_XOR:      return Xor;
             case OP_NOT:      return Not;
             case OP_IMPLIES:  return Implies;
@@ -938,3 +939,30 @@ void iz3mgr::get_bound_substitutes(stl_ext::hash_map<ast,bool> &memo, const ast 
  
     }
 #endif
+
+unsigned  iz3mgr::num_free_variables(const ast &e){
+    used_vars uv;
+    uv(to_expr(e.raw()));
+    return uv.get_num_vars();
+}
+
+iz3mgr::ast iz3mgr::close_universally (ast e){
+   used_vars uv;
+   uv(to_expr(e.raw()));
+   std::vector<ast> bvs;
+   stl_ext::hash_map<ast,ast> subst_memo;
+   for (unsigned i = 0; i < uv.get_max_found_var_idx_plus_1(); i++){
+       if (uv.get(i)) {
+           std::ostringstream os;
+           os << "%%" << i;
+           ast c = make_var(os.str(),uv.get(i));
+           ast v = cook(m().mk_var(i,uv.get(i)));
+           subst_memo[v] = c;
+           bvs.push_back(c);
+       }
+   }
+   e = subst(subst_memo,e);
+   for (unsigned i = 0; i < bvs.size(); i++)
+       e = apply_quant(Forall,bvs[i],e);
+   return e;
+}

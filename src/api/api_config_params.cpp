@@ -18,7 +18,7 @@ Revision History:
 #include "api/z3.h"
 #include "api/api_context.h"
 #include "ast/pp.h"
-#include"api_log_macros.h"
+#include "api/api_log_macros.h"
 #include "api/api_util.h"
 #include "cmd_context/cmd_context.h"
 #include "util/symbol.h"
@@ -53,7 +53,7 @@ extern "C" {
     Z3_bool_opt Z3_API Z3_global_param_get(Z3_string param_id, Z3_string_ptr param_value) {
         memory::initialize(UINT_MAX);
         LOG_Z3_global_param_get(param_id, param_value);
-        *param_value = 0;
+        *param_value = nullptr;
         try {
             g_Z3_global_param_get_buffer = gparams::get_value(param_id);
             *param_value = g_Z3_global_param_get_buffer.c_str();

@@ -29,7 +29,7 @@ Notes:
 #include "util/scoped_ctrl_c.h"
 #include "util/scoped_timer.h"
 #include "cmd_context/parametric_cmd.h"
-#include "opt_params.hpp"
+#include "opt/opt_params.hpp"
 #include "model/model_smt2_pp.h"
 
 static opt::context& get_opt(cmd_context& cmd, opt::context* opt) {
@@ -52,7 +52,7 @@ public:
     assert_soft_cmd(opt::context* opt):
         parametric_cmd("assert-soft"),
         m_idx(0),
-        m_formula(0),
+        m_formula(nullptr),
         m_opt(opt)
     {}
 
@@ -61,7 +61,7 @@ public:
 
     virtual void reset(cmd_context & ctx) { 
         m_idx = 0; 
-        m_formula = 0;
+        m_formula = nullptr;
     }
 
     virtual char const * get_usage() const { return "<formula> [:weight <rational-weight>] [:id <symbol>]"; }
@@ -96,6 +96,9 @@ public:
     }
 
     virtual void execute(cmd_context & ctx) {
+        if (!m_formula) {
+            throw cmd_exception("assert-soft requires a formulas as argument.");
+        }
         symbol w("weight");
         rational weight = ps().get_rat(symbol("weight"), rational::one());
         symbol id = ps().get_sym(symbol("id"), symbol::null);        
@@ -163,7 +166,9 @@ public:
     }
 
     virtual void execute(cmd_context & ctx) {
-        get_opt(ctx, m_opt).display_assignment(ctx.regular_stream());        
+        if (!ctx.ignore_check()) {
+            get_opt(ctx, m_opt).display_assignment(ctx.regular_stream());        
+        }
     }
 };
 

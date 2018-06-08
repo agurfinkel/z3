@@ -25,9 +25,9 @@ Revision History:
 #include "ast/rewriter/expr_replacer.h"
 #include "muz/base/dl_rule_transformer.h"
 #include "muz/transforms/dl_mk_slice.h"
-#include "tactic/filter_model_converter.h"
+#include "tactic/generic_model_converter.h"
 #include "muz/transforms/dl_transforms.h"
-#include"fixedpoint_params.hpp"
+#include "muz/base/fixedpoint_params.hpp"
 #include "ast/ast_util.h"
 #include "ast/rewriter/var_subst.h"
 
@@ -65,7 +65,7 @@ class horn_tactic : public tactic {
 
         void normalize(expr_ref& f) {
             bool is_positive = true;
-            expr* e = 0;
+            expr* e = nullptr;
             while (true) {
                 if (is_forall(f) && is_positive) {
                     f = to_quantifier(f)->get_expr();
@@ -141,7 +141,7 @@ class horn_tactic : public tactic {
             ast_mark mark;
             expr_ref_vector args(m), body(m);
             expr_ref head(m);
-            expr* a = 0, *a1 = 0;
+            expr* a = nullptr, *a1 = nullptr;
             flatten_or(tmp, args);
             for (unsigned i = 0; i < args.size(); ++i) {
                 a = args[i].get(); 
@@ -177,12 +177,8 @@ class horn_tactic : public tactic {
         }
 
         void operator()(goal_ref const & g, 
-                        goal_ref_buffer & result, 
-                        model_converter_ref & mc, 
-                        proof_converter_ref & pc,
-                        expr_dependency_ref & core) {
+                        goal_ref_buffer & result) {
             SASSERT(g->is_well_sorted());
-            mc = 0; pc = 0; core = 0;
             tactic_report report("horn", *g);
             bool produce_proofs = g->proofs_enabled();
 
@@ -229,18 +225,22 @@ class horn_tactic : public tactic {
                 }
                 queries.reset();
                 queries.push_back(q);
-                filter_model_converter* mc1 = alloc(filter_model_converter, m);
-                mc1->insert(to_app(q)->get_decl());
-                mc = mc1;
+                generic_model_converter* mc1 = alloc(generic_model_converter, m, "horn");
+                mc1->hide(q);
+                g->add(mc1);
             }
             SASSERT(queries.size() == 1);
             q = queries[0].get();
+            proof_converter_ref pc = g->pc();
+            model_converter_ref mc;
             if (m_is_simplify) {
                 simplify(q, g, result, mc, pc);
             }
             else {
                 verify(q, g, result, mc, pc);
             }
+            g->set(pc.get());
+            g->set(mc.get());
         }
 
         void verify(expr* q, 
@@ -270,7 +270,7 @@ class horn_tactic : public tactic {
                 if (produce_proofs) {
                     proof_ref proof = m_ctx.get_proof();
                     pc = proof2proof_converter(m, proof);
-                    g->assert_expr(m.mk_false(), proof, 0);
+                    g->assert_expr(m.mk_false(), proof, nullptr);
                 }
                 else {
                     g->assert_expr(m.mk_false());
@@ -365,43 +365,40 @@ public:
         m_imp = alloc(imp, t, m, p);
     }
 
-    virtual tactic * translate(ast_manager & m) {
+    tactic * translate(ast_manager & m) override {
         return alloc(horn_tactic, m_is_simplify, m, m_params);
     }
         
-    virtual ~horn_tactic() {
+    ~horn_tactic() override {
         dealloc(m_imp);
     }
 
-    virtual void updt_params(params_ref const & p) {
+    void updt_params(params_ref const & p) override {
         m_params = p;
         m_imp->updt_params(p);
     }
 
    
-    virtual void collect_param_descrs(param_descrs & r) {
+    void collect_param_descrs(param_descrs & r) override {
         m_imp->collect_param_descrs(r);
     }
     
-    virtual void operator()(goal_ref const & in, 
-                            goal_ref_buffer & result, 
-                            model_converter_ref & mc, 
-                            proof_converter_ref & pc,
-                            expr_dependency_ref & core) {
-        (*m_imp)(in, result, mc, pc, core);
+    void operator()(goal_ref const & in, 
+                    goal_ref_buffer & result) override {
+        (*m_imp)(in, result);
     }
     
-    virtual void collect_statistics(statistics & st) const {
+    void collect_statistics(statistics & st) const override {
         m_imp->collect_statistics(st);
         st.copy(m_stats);
     }
 
-    virtual void reset_statistics() {
+    void reset_statistics() override {
         m_stats.reset();
         m_imp->reset_statistics();
     }
     
-    virtual void cleanup() {
+    void cleanup() override {
         ast_manager & m = m_imp->m;
         m_imp->collect_statistics(m_stats);
         dealloc(m_imp);

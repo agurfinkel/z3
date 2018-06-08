@@ -17,13 +17,9 @@ Notes:
 
 --*/
 #include "tactic/tactical.h"
-#include "ast/simplifier/simplifier.h"
-#include "ast/simplifier/basic_simplifier_plugin.h"
-#include "ast/simplifier/arith_simplifier_plugin.h"
-#include "ast/simplifier/bv_simplifier_plugin.h"
+#include "tactic/generic_model_converter.h"
 #include "ast/macros/macro_manager.h"
 #include "ast/macros/macro_finder.h"
-#include "tactic/extension_model_converter.h"
 #include "ast/macros/quasi_macros.h"
 #include "tactic/ufbv/quasi_macros_tactic.h"
 
@@ -35,70 +31,60 @@ class quasi_macros_tactic : public tactic {
         imp(ast_manager & m, params_ref const & p) : m_manager(m) {
             updt_params(p);
         }
-        
+
         ast_manager & m() const { return m_manager; }
-        
-        
-        void operator()(goal_ref const & g, 
-                        goal_ref_buffer & result, 
-                        model_converter_ref & mc, 
-                        proof_converter_ref & pc,
-                        expr_dependency_ref & core) {
+
+
+        void operator()(goal_ref const & g,
+                        goal_ref_buffer & result) {
             SASSERT(g->is_well_sorted());
-            mc = 0; pc = 0; core = 0;
             tactic_report report("quasi-macros", *g);
-            fail_if_unsat_core_generation("quasi-macros", g);
 
             bool produce_proofs = g->proofs_enabled();
-            
-            simplifier simp(m_manager);
-            basic_simplifier_plugin * bsimp = alloc(basic_simplifier_plugin, m_manager);
-            bsimp->set_eliminate_and(true);
-            simp.register_plugin(bsimp);
-            arith_simplifier_params a_params;
-            arith_simplifier_plugin * asimp = alloc(arith_simplifier_plugin, m_manager, *bsimp, a_params);
-            simp.register_plugin(asimp);
-            bv_simplifier_params bv_params;
-            bv_simplifier_plugin * bvsimp = alloc(bv_simplifier_plugin, m_manager, *bsimp, bv_params);
-            simp.register_plugin(bvsimp);
-                
-            macro_manager mm(m_manager, simp);
-            quasi_macros qm(m_manager, mm, simp);
+            bool produce_unsat_cores = g->unsat_core_enabled();
+                            
+            macro_manager mm(m_manager);
+            quasi_macros qm(m_manager, mm);
             bool more = true;
-        
+
             expr_ref_vector forms(m_manager), new_forms(m_manager);
             proof_ref_vector proofs(m_manager), new_proofs(m_manager);
+            expr_dependency_ref_vector deps(m_manager), new_deps(m_manager);
 
             unsigned size = g->size();
             for (unsigned i = 0; i < size; i++) {
                 forms.push_back(g->form(i));
                 proofs.push_back(g->pr(i));
+                deps.push_back(g->dep(i));
             }
-        
+
             while (more) { // CMW: use repeat(...) ?
                 if (m().canceled())
                     throw tactic_exception(m().limit().get_cancel_msg());
-            
+
                 new_forms.reset();
                 new_proofs.reset();
-                more = qm(forms.size(), forms.c_ptr(), proofs.c_ptr(), new_forms, new_proofs);            
+                new_deps.reset();
+                more = qm(forms.size(), forms.c_ptr(), proofs.c_ptr(), deps.c_ptr(), new_forms, new_proofs, new_deps);
                 forms.swap(new_forms);
-                proofs.swap(new_proofs);            
+                proofs.swap(new_proofs);
+                deps.swap(new_deps);
             }
 
             g->reset();
             for (unsigned i = 0; i < new_forms.size(); i++)
-                g->assert_expr(new_forms.get(i), produce_proofs ? new_proofs.get(i) : 0, 0);
+                g->assert_expr(forms.get(i),
+                               produce_proofs ? proofs.get(i) : nullptr,
+                               produce_unsat_cores ? deps.get(i) : nullptr);
 
-            extension_model_converter * evmc = alloc(extension_model_converter, mm.get_manager());
+            generic_model_converter * evmc = alloc(generic_model_converter, mm.get_manager(), "quasi_macros");
             unsigned num = mm.get_num_macros();
             for (unsigned i = 0; i < num; i++) {
                 expr_ref f_interp(mm.get_manager());
                 func_decl * f = mm.get_macro_interpretation(i, f_interp);
-                evmc->insert(f, f_interp);
+                evmc->add(f, f_interp);
             }
-            mc = evmc;
-
+            g->add(evmc);
             g->inc_depth();
             result.push_back(g.get());
             TRACE("quasi-macros", g->display(tout););
@@ -108,7 +94,7 @@ class quasi_macros_tactic : public tactic {
         void updt_params(params_ref const & p) {
         }
     };
-    
+
     imp *      m_imp;
     params_ref m_params;
 
@@ -118,37 +104,34 @@ public:
         m_imp = alloc(imp, m, p);
     }
 
-    virtual tactic * translate(ast_manager & m) {
+    tactic * translate(ast_manager & m) override {
         return alloc(quasi_macros_tactic, m, m_params);
     }
-        
-    virtual ~quasi_macros_tactic() {
+
+    ~quasi_macros_tactic() override {
         dealloc(m_imp);
     }
 
-    virtual void updt_params(params_ref const & p) {
+    void updt_params(params_ref const & p) override {
         m_params = p;
         m_imp->updt_params(p);
     }
 
-    virtual void collect_param_descrs(param_descrs & r) {
+    void collect_param_descrs(param_descrs & r) override {
         insert_max_memory(r);
         insert_produce_models(r);
         insert_produce_proofs(r);
     }
-    
-    virtual void operator()(goal_ref const & in, 
-                            goal_ref_buffer & result, 
-                            model_converter_ref & mc, 
-                            proof_converter_ref & pc,
-                            expr_dependency_ref & core) {
-        (*m_imp)(in, result, mc, pc, core);
+
+    void operator()(goal_ref const & in,
+                    goal_ref_buffer & result) override {
+        (*m_imp)(in, result);
     }
-    
-    virtual void cleanup() {
+
+    void cleanup() override {
         ast_manager & m = m_imp->m();
         imp * d = alloc(imp, m, m_params);
-        std::swap(d, m_imp);        
+        std::swap(d, m_imp);
         dealloc(d);
     }
 

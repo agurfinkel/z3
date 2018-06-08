@@ -60,14 +60,14 @@ class inf_s_integer {
     bool is_int64() const { return m_second == 0; }
     bool is_uint64() const { return m_second == 0; }
     bool is_rational() const { return m_second == 0; }
-    int64 get_int64() const { return m_first; }
-    uint64 get_uint64() const { return m_first; }
+    int64_t get_int64() const { return m_first; }
+    uint64_t get_uint64() const { return m_first; }
     s_integer get_rational() const { return s_integer(m_first); }
     s_integer get_infinitesimal() const { return s_integer(m_second); }
     inf_s_integer & operator=(const inf_s_integer & r) { 
         m_first = r.m_first;
         m_second = r.m_second;
-	return *this;
+        return *this;
     }
     inf_s_integer & operator=(const rational & r) {
         m_first = static_cast<int>(r.get_int64());
@@ -90,20 +90,20 @@ class inf_s_integer {
     inf_s_integer & operator+=(const inf_s_integer & r) { 
         m_first  += r.m_first;
         m_second += r.m_second;
-	return *this; 
+        return *this; 
     }
     inf_s_integer & operator-=(const inf_s_integer & r) { 
         m_first  -= r.m_first;
         m_second -= r.m_second;
-	return *this; 
+        return *this; 
     }
     inf_s_integer & operator+=(const s_integer & r) { 
         m_first  += r.get_int();
-	return *this; 
+        return *this; 
     }
     inf_s_integer & operator-=(const s_integer & r) { 
         m_first  -= r.get_int();
-	return *this; 
+        return *this; 
     }
     inf_s_integer & operator*=(const s_integer & r1) {
         m_first  *= r1.get_int();

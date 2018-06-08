@@ -20,20 +20,23 @@ Revision History:
 
 --*/
 
+#include "util/uint_set.h"
 #include "ast/ast_pp.h"
-#include "tactic/ufbv/ufbv_rewriter.h"
 #include "ast/for_each_expr.h"
 #include "ast/rewriter/var_subst.h"
-#include "util/uint_set.h"
+#include "tactic/ufbv/ufbv_rewriter.h"
 
-ufbv_rewriter::ufbv_rewriter(ast_manager & m, basic_simplifier_plugin & p):
+ufbv_rewriter::ufbv_rewriter(ast_manager & m):
     m_manager(m),
     m_match_subst(m),
-    m_bsimp(p),
+    m_bsimp(m),
     m_todo(m),
     m_rewrite_todo(m),
     m_rewrite_cache(m),
     m_new_exprs(m) {
+    params_ref p;
+    p.set_bool("elim_and", true);
+    m_bsimp.updt_params(p);
 }
 
 ufbv_rewriter::~ufbv_rewriter() {
@@ -193,14 +196,14 @@ int ufbv_rewriter::is_smaller(expr * e1, expr * e2) const {
 class max_var_id_proc {
     unsigned    m_max_var_id;
 public:
-    max_var_id_proc(void):m_max_var_id(0) {}
+    max_var_id_proc():m_max_var_id(0) {}
     void operator()(var * n) {
         if(n->get_idx() > m_max_var_id)
             m_max_var_id = n->get_idx();
     }
     void operator()(quantifier * n) {}
     void operator()(app * n) {}
-    unsigned get_max(void) { return m_max_var_id; }
+    unsigned get_max() { return m_max_var_id; }
 };
 
 unsigned ufbv_rewriter::max_var_id(expr * e)
@@ -250,7 +253,7 @@ void ufbv_rewriter::remove_fwd_idx(func_decl * f, quantifier * demodulator) {
     }
 }
 
-bool ufbv_rewriter::check_fwd_idx_consistency(void) {
+bool ufbv_rewriter::check_fwd_idx_consistency() {
     for (fwd_idx_map::iterator it = m_fwd_idx.begin(); it != m_fwd_idx.end() ; it++ ) {
         quantifier_set * set = it->m_value;
         SASSERT(set);
@@ -319,8 +322,27 @@ bool ufbv_rewriter::rewrite_visit_children(app * a) {
     while (j > 0) {
         expr * e = a->get_arg(--j);
         if (!m_rewrite_cache.contains(e) || !m_rewrite_cache.get(e).second) {
-            m_rewrite_todo.push_back(e);
-            res = false;
+            bool recursive = false;
+            unsigned sz = m_rewrite_todo.size();
+            expr * v = e;
+            if (m_rewrite_cache.contains(e)) {
+                expr_bool_pair const & ebp = m_rewrite_cache.get(e);
+                if (ebp.second)
+                    v = ebp.first;
+            }
+            for (unsigned i = sz; i > 0; i--) {
+                if (m_rewrite_todo[i - 1] == v) {
+                    recursive = true;
+                    TRACE("demodulator", tout << "Detected demodulator cycle: " <<
+                        mk_pp(a, m_manager) << " --> " << mk_pp(v, m_manager) << std::endl;);
+                    m_rewrite_cache.insert(e, expr_bool_pair(v, true));
+                    break;
+                }
+            }
+            if (!recursive) {
+                m_rewrite_todo.push_back(e);
+                res = false;
+            }
         }
     }
     return res;
@@ -344,7 +366,8 @@ expr * ufbv_rewriter::rewrite(expr * n) {
     while (!m_rewrite_todo.empty()) {
         TRACE("demodulator_stack", tout << "STACK: " << std::endl;
               for ( unsigned i = 0; i<m_rewrite_todo.size(); i++)
-                  tout << std::dec << i << ": " << std::hex << (size_t)m_rewrite_todo[i] << std::endl;
+                  tout << std::dec << i << ": " << std::hex << (size_t)m_rewrite_todo[i] <<
+                  " = " << mk_pp(m_rewrite_todo[i], m_manager) << std::endl;
               );
 
         expr * e = m_rewrite_todo.back();
@@ -396,7 +419,7 @@ expr * ufbv_rewriter::rewrite(expr * n) {
                         if (f->get_family_id() != m_manager.get_basic_family_id())
                             na = m_manager.mk_app(f, m_new_args.size(), m_new_args.c_ptr());
                         else
-                            m_bsimp.reduce(f, m_new_args.size(), m_new_args.c_ptr(), na);
+                            m_bsimp.mk_app(f, m_new_args.size(), m_new_args.c_ptr(), na);
                         TRACE("demodulator_bug", tout << "e:\n" << mk_pp(e, m_manager) << "\nnew_args: \n";
                               for (unsigned i = 0; i < m_new_args.size(); i++) { tout << mk_pp(m_new_args[i], m_manager) << "\n"; }
                               tout << "=====>\n";

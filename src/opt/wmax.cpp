@@ -80,9 +80,12 @@ namespace opt {
             while (!m.canceled() && m_lower < m_upper) {
                 //mk_assumptions(asms);
                 //is_sat = s().preferred_sat(asms, cores);
-                is_sat = s().check_sat(0, 0);
+                is_sat = s().check_sat(0, nullptr);
                 if (m.canceled()) {
                     is_sat = l_undef;
+                }
+                if (is_sat == l_undef) {
+                    break;
                 }
                 if (is_sat == l_false) {
                     TRACE("opt", tout << "Unsat\n";);
@@ -96,9 +99,6 @@ namespace opt {
                     expr_ref fml = wth().mk_block();
                     //DEBUG_CODE(verify_cores(cores););
                     s().assert_expr(fml);
-                }
-                else {
-                    //DEBUG_CODE(verify_cores(cores););
                 }
                 update_cores(wth(), cores);
                 wth().init_min_cost(m_upper - m_lower);
@@ -162,7 +162,7 @@ namespace opt {
         void verify_core(expr_ref_vector const& core) {
             s().push();
             s().assert_expr(core);
-            VERIFY(l_false == s().check_sat(0, 0));          
+            VERIFY(l_false == s().check_sat(0, nullptr));
             s().pop(1);
         }
 
@@ -216,7 +216,7 @@ namespace opt {
         rational remove_negations(smt::theory_wmaxsat& th, expr_ref_vector const& core, ptr_vector<expr>& keys, vector<rational>& weights) {
             rational min_weight(-1);
             for (unsigned i = 0; i < core.size(); ++i) {
-                expr* e = 0;
+                expr* e = nullptr;
                 VERIFY(m.is_not(core[i], e));
                 keys.push_back(m_keys[e]);
                 rational weight = m_weights[e];

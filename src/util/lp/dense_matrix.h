@@ -1,12 +1,27 @@
-/*
-  Copyright (c) 2017 Microsoft Corporation
-  Author: Lev Nachmanson
-*/
+/*++
+Copyright (c) 2017 Microsoft Corporation
+
+Module Name:
+
+    <name>
+
+Abstract:
+
+    <abstract>
+
+Author:
+
+    Lev Nachmanson (levnach)
+
+Revision History:
+
+
+--*/
 #pragma once
-#ifdef LEAN_DEBUG
+#ifdef Z3DEBUG
 #include "util/vector.h"
 #include "util/lp/matrix.h"
-namespace lean {
+namespace lp {
 // used for debugging purposes only
 template <typename T, typename X>
 class dense_matrix: public matrix<T, X> {
@@ -31,7 +46,7 @@ public:
     dense_matrix(unsigned m, unsigned n);
 
     dense_matrix operator*=(matrix<T, X> const & a) {
-        lean_assert(column_count() == a.row_count());
+        SASSERT(column_count() == a.row_count());
         dense_matrix c(row_count(), a.column_count());
         for (unsigned i = 0; i < row_count(); i++) {
             for (unsigned j = 0; j < a.column_count(); j++) {
@@ -64,13 +79,14 @@ public:
 
     void apply_from_left_to_X(vector<X> & w, lp_settings & );
 
-    virtual void set_number_of_rows(unsigned /*m*/) {}
-    virtual void set_number_of_columns(unsigned /*n*/) { }
+    void set_number_of_rows(unsigned /*m*/) override {}
+    void set_number_of_columns(unsigned /*n*/) override {}
+#ifdef Z3DEBUG
+    T get_elem(unsigned i, unsigned j) const override { return m_values[i * m_n + j]; }
+#endif
 
-    T get_elem(unsigned i, unsigned j) const { return m_values[i * m_n + j]; }
-
-    unsigned row_count() const { return m_m; }
-    unsigned column_count() const { return m_n; }
+    unsigned row_count() const override { return m_m; }
+    unsigned column_count() const override { return m_n; }
 
     void set_elem(unsigned i, unsigned j, const T& val) {  m_values[i * m_n + j] = val;  }
 
