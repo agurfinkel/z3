@@ -3090,7 +3090,7 @@ namespace smt {
 
     bool context::reduce_assertions() {
         if (!m_asserted_formulas.inconsistent()) {
-            SASSERT(at_base_level());
+            // SASSERT(at_base_level());
             m_asserted_formulas.reduce();
         }
         return m_asserted_formulas.inconsistent();
