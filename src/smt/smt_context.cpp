@@ -627,10 +627,7 @@ namespace smt {
     */
     void context::remove_parents_from_cg_table(enode * r1) {
         // Remove parents from the congruence table
-        enode_vector::iterator it  = r1->begin_parents();
-        enode_vector::iterator end = r1->end_parents();
-        for (; it != end; ++it) {
-            enode * parent = *it;
+        for (enode * parent : enode::parents(r1)) {
 #if 0
             {
                 static unsigned num_eqs = 0;
@@ -675,10 +672,7 @@ namespace smt {
     */
     void context::reinsert_parents_into_cg_table(enode * r1, enode * r2, enode * n1, enode * n2, eq_justification js) {
         enode_vector & r2_parents  = r2->m_parents;
-        enode_vector::iterator it  = r1->begin_parents();
-        enode_vector::iterator end = r1->end_parents();
-        for (; it != end; ++it) {
-            enode * parent = *it;
+        for (enode * parent : enode::parents(r1)) {
             if (!parent->is_marked())
                 continue;
             parent->unset_mark();
@@ -1008,10 +1002,7 @@ namespace smt {
         r2->m_parents.shrink(r2_num_parents);
 
         // try to reinsert parents of r1 that are not cgr
-        it  = r1->begin_parents();
-        end = r1->end_parents();
-        for (; it != end; ++it) {
-            enode * parent = *it;
+        for (enode * parent : enode::parents(r1)) {
             TRACE("add_eq_parents", tout << "visiting: #" << parent->get_owner_id() << "\n";);
             if (parent->is_cgc_enabled()) {
                 enode * cg     = parent->m_cg;
@@ -1206,10 +1197,7 @@ namespace smt {
     bool context::is_diseq_slow(enode * n1, enode * n2) const {
         if (n1->get_num_parents() > n2->get_num_parents())
             std::swap(n1, n2);
-        enode_vector::iterator it  = n1->begin_parents();
-        enode_vector::iterator end = n1->end_parents();
-        for (; it != end; ++it) {
-            enode * parent = *it;
+        for (enode * parent : enode::parents(n1)) {
             if (parent->is_eq() && is_relevant(parent->get_owner()) && get_assignment(enode2bool_var(parent)) == l_false &&
                 ((parent->get_arg(0)->get_root() == n1->get_root() && parent->get_arg(1)->get_root() == n2->get_root()) ||
                  (parent->get_arg(1)->get_root() == n1->get_root() && parent->get_arg(0)->get_root() == n2->get_root()))) {
@@ -1241,10 +1229,7 @@ namespace smt {
             return false;
         if (r1->get_num_parents() < SMALL_NUM_PARENTS) {
             TRACE("is_ext_diseq", tout << mk_bounded_pp(n1->get_owner(), m_manager) << " " << mk_bounded_pp(n2->get_owner(), m_manager) << " " << depth << "\n";);
-            enode_vector::iterator it1  = r1->begin_parents();
-            enode_vector::iterator end1 = r1->end_parents();
-            for (; it1 != end1; ++it1) {
-                enode * p1        = *it1;
+            for (enode * p1 : enode::parents(r1)) {
                 if (!is_relevant(p1))
                     continue;
                 if (p1->is_eq())
@@ -1254,10 +1239,7 @@ namespace smt {
                 func_decl * f     = p1->get_decl();
                 TRACE("is_ext_diseq", tout << "p1: " << mk_bounded_pp(p1->get_owner(), m_manager) << "\n";);
                 unsigned num_args = p1->get_num_args();
-                enode_vector::iterator it2  = r2->begin_parents();
-                enode_vector::iterator end2 = r2->end_parents();
-                for (; it2 != end2; ++it2) {
-                    enode * p2  = *it2;
+                for (enode * p2 : enode::parents(r2)) {
                     if (!is_relevant(p2))
                         continue;
                     if (p2->is_eq())
@@ -1295,10 +1277,7 @@ namespace smt {
             }
             almost_cg_table & table = *(m_almost_cg_tables[depth]);
             table.reset(r1, r2);
-            enode_vector::iterator it1  = r1->begin_parents();
-            enode_vector::iterator end1 = r1->end_parents();
-            for (; it1 != end1; ++it1) {
-                enode * p1        = *it1;
+            for (enode * p1 : enode::parents(r1)) {
                 if (!is_relevant(p1))
                     continue;
                 if (p1->is_eq())
@@ -1309,10 +1288,7 @@ namespace smt {
             }
             if (table.empty())
                 return false;
-            enode_vector::iterator it2  = r2->begin_parents();
-            enode_vector::iterator end2 = r2->end_parents();
-            for (; it2 != end2; ++it2) {
-                enode * p2 = *it2;
+            for (enode * p2 : enode::parents(r2)) {
                 if (!is_relevant(p2))
                     continue;
                 if (p2->is_eq())
@@ -4314,10 +4290,7 @@ namespace smt {
             theory_var_list * l = n->get_th_var_list();
             theory_id th_id     = l->get_th_id();
 
-            enode_vector::const_iterator it  = n->begin_parents();
-            enode_vector::const_iterator end = n->end_parents();
-            for (; it != end; ++it) {
-                enode * parent = *it;
+            for (enode * parent : enode::parents(n)) {
                 family_id fid = parent->get_owner()->get_family_id();
                 if (fid != th_id && fid != m_manager.get_basic_family_id()) {
                     TRACE("is_shared", tout << mk_pp(n->get_owner(), m_manager) << "\nis shared because of:\n" << mk_pp(parent->get_owner(), m_manager) << "\n";);
