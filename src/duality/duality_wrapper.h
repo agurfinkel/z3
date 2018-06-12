@@ -894,11 +894,7 @@ namespace Duality {
             lbool r = m_solver->check_sat(n, VEC2PTR(_assumptions));
 
             if(core_size && core){
-                ptr_vector< ::expr> _core;
-                m_solver->get_unsat_core(_core);
-                *core_size = _core.size();
-                for(unsigned i = 0; i < *core_size; i++)
-                    core[i] = expr(ctx(),_core[i]);
+                NOT_IMPLEMENTED_YET();
             }
 
             model_ref m;
