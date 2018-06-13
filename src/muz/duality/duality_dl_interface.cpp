@@ -34,7 +34,7 @@
 #include "ast/expr_abstract.h"
 #include "model/model_smt2_pp.h"
 #include "model/model_v2_pp.h"
-#include "muz/base/fixedpoint_params.hpp"
+#include "muz/base/fp_params.hpp"
 #include "ast/used_vars.h"
 #include "ast/func_decl_dependencies.h"
 #include "muz/transforms/dl_transforms.h"
