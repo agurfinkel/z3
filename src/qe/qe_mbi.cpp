@@ -315,9 +315,9 @@ namespace qe {
     }
 
     app_ref_vector euf_arith_mbi_plugin::get_arith_vars(expr_ref_vector const& lits) {
-                arith_util a(m);
-                app_ref_vector avars(m);
-                is_arith_var_proc _proc(avars, m_shared);        
+        arith_util a(m);
+        app_ref_vector avars(m);
+        is_arith_var_proc _proc(avars, m_shared);        
         for_each_expr(_proc, lits);                
         return avars;
     }
@@ -469,7 +469,7 @@ namespace qe {
            Let local be assertions local to the plugin
            Let blocked be clauses added by blocked, kept separately from local
            mbi_plugin::check(lits, mdl, bool force_model):
-              if lits.empty()  and mdl == nullptr then
+              if lits.empty() and mdl == nullptr then
                   if is_sat(local & blocked) then
                       return l_true, mbp of local, mdl of local & blocked
                   else
@@ -484,7 +484,7 @@ namespace qe {
                         return l_true, mbp of local, mdl of local & blocked
                   else if !is_sat(local & lits) then
                       return l_false, mbp of local, nullptr
-                  else if is_sat(local & lits) && !is_sat(local & lits & blocked)
+                  else // is_sat(local & lits) && !is_sat(local & lits & blocked)
                       MISSING CASE
                       MUST PRODUCE AN IMPLICANT OF LOCAL that is inconsistent with lits & blocked
                       in this case !is_sat(local & lits & mdl) so
@@ -502,9 +502,10 @@ namespace qe {
         while (true) {
             // when lits.empty(), this picks an A-implicant consistent with B
             // when !lits.empty(), checks whether mdl of shared vocab extends to A
-            switch (a.check_ag(lits, mdl, !lits.empty())) {
+            bool force_model = !lits.empty();
+            switch (a.check_ag(lits, mdl, force_model)) {
             case l_true:
-                if (!lits.empty())
+                if (force_model)
                     // mdl is a model for a && b
                     return l_true;
                 switch (b.check_ag(lits, mdl, false)) {
