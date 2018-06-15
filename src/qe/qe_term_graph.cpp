@@ -35,6 +35,7 @@ namespace qe {
             }
         };
     }
+
     namespace is_pure_ns {
         struct found{};
         struct proc {
