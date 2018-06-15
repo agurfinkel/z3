@@ -28,6 +28,14 @@ Notes:
 
 namespace qe {
 
+    namespace {
+        struct sort_lt_proc {
+            bool operator()(const expr* a, const expr *b) const {
+                return get_sort(a)->get_id() < get_sort(b)->get_id();
+            }
+        };
+    }
+
     namespace is_pure_ns {
         struct found{};
         struct proc {
@@ -760,15 +768,33 @@ namespace qe {
                     val2rep.insert(val, rep);
                 }
             }
-            // TBD: this ignores types, need one use of 'distinct' per sort.
-            // TBD: probably ignore distinct on values
-            // TBD: ignore distinct on Booleans
+
+            // TBD: optimize further based on implied values (e.g.,
+            // some literals are forced to be true/false) and based on
+            // unique_values (e.g., (x=1 & y=1) does not require
+            // (x!=y) to be added
             ptr_buffer<expr> reps;
             for (auto &kv : val2rep) {
-                reps.push_back(kv.m_value);
-                std::cout << mk_pp(kv.m_value, m) << "\n";
+                expr *rep = kv.m_value;
+                if (!m.is_unique_value(rep))
+                    reps.push_back(kv.m_value);
             }
-            // res.push_back(m.mk_distinct(reps.size(), reps.c_ptr()));
+
+            if (reps.size() <= 1) return;
+
+            // -- sort representatives, call mk_distinct on any range
+            // -- of the same sort longer than 1
+            std::sort(reps.c_ptr(), reps.c_ptr() + reps.size(), sort_lt_proc());
+            unsigned i = 0;
+            unsigned sz = reps.size();
+            while (i < sz) {
+                sort* last_sort = get_sort(reps.get(i));
+                unsigned j = i + 1;
+                while (j < sz && last_sort == get_sort(reps.get(j))) {++j;}
+                if (j - i > 1)
+                    res.push_back(m.mk_distinct(j - i, reps.c_ptr() + i));
+                i = j;
+            }
         }
 
     public:
