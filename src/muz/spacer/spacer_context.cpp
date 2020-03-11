@@ -2352,6 +2352,7 @@ void context::updt_params() {
     m_pdr_bfs = m_params.spacer_gpdr_bfs();
     m_use_bg_invs = m_params.spacer_use_bg_invs();
     m_global = m_params.spacer_global();
+    m_conjecture = m_params.spacer_conjecture();
     m_use_sage = m_params.spacer_use_sage();
     m_concretize = m_params.spacer_concretize();
 

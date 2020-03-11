@@ -147,6 +147,10 @@ namespace spacer {
     unsigned get_num_vars(expr *e);
     void get_uninterp_consts(expr *a, expr_ref_vector &out);
 
+    // drop all literals from n that match leq_lit. Returns whether some have
+    // been dropped or not
+    bool drop_lit(expr_ref_vector &in, expr_ref &lit, expr_ref_vector &out);
+
     bool contains_mod(expr_ref e);
     // convert an arith expression lit into t <= c. returns true if such a
     // normal form exists and c is numeral

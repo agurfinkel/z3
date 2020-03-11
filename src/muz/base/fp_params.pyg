@@ -182,6 +182,7 @@ def_module_params('fp',
                           ('spacer.logic', SYMBOL, '', 'SMT-LIB logic to configure internal SMT solvers'),
                           ('spacer.arith.solver', UINT, 2, 'arithmetic solver: 0 - no solver, 1 - bellman-ford based solver (diff. logic only), 2 - simplex based solver, 3 - floyd-warshall based solver (diff. logic only) and no theory combination 4 - utvpi, 5 - infinitary lra, 6 - lra solver'),
                           ('spacer.concretize', BOOL, False, 'Enable concretize rule'),
+                          ('spacer.conjecture', BOOL, False, 'Enable conjecturing new pobs'),
                           ('spacer.global', BOOL, False, 'Enable global generalization of lemmas'),
                           ('spacer.use_sage', BOOL, False, 'Enable kernel computation using Sage'),
                           ))
