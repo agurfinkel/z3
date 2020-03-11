@@ -148,6 +148,9 @@ namespace spacer {
     void get_uninterp_consts(expr *a, expr_ref_vector &out);
 
     bool contains_mod(expr_ref e);
+    // convert an arith expression lit into t <= c. returns true if such a
+    // normal form exists and c is numeral
+    bool normalize_to_le(expr *lit, expr_ref &t, expr_ref &c);
     // multiply fml with num and simplify rationals to ints
     // assumes that fml is in sop form and is linear
     void mul_and_simp(expr_ref &fml, rational num);

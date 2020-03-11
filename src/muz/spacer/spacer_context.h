@@ -1165,6 +1165,7 @@ class context {
     bool                 m_use_bg_invs;
     bool                 m_global;
     bool                 m_use_sage;
+    bool                 m_concretize;
     unsigned             m_push_pob_max_depth;
     unsigned             m_max_level;
     unsigned             m_restart_initial_threshold;

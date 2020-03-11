@@ -1010,6 +1010,26 @@ namespace {
         collect_uninterp_consts proc(out);
         for_each_expr(proc, e);
     }
+
+    namespace contains_mod_ns {
+    struct found {};
+    struct contains_mod_proc {
+        ast_manager &m;
+        arith_util m_arith;
+        contains_mod_proc(ast_manager &a_m) : m(a_m), m_arith(m) {}
+        void operator()(expr *n) const {}
+        void operator()(app *n) {
+            if (m_arith.is_mod(n)) throw found();
+        }
+    };
+    } // namespace contains_mod_ns
+    bool contains_mod(expr_ref e) {
+        contains_mod_ns::contains_mod_proc t(e.get_manager());
+        try {
+            for_each_expr(t, e);
+            return false;
+        } catch (const contains_mod_ns::found &) { return true; }
+    }
 } // namespace spacer
 template class rewriter_tpl<spacer::adhoc_rewriter_cfg>;
 template class rewriter_tpl<spacer::adhoc_rewriter_rpp>;
