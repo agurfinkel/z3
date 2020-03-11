@@ -987,6 +987,29 @@ namespace {
         model.register_decl(f, model.get_manager().mk_true());
         model.reset_eval_cache();
     }
+    unsigned get_num_vars(expr *e) {
+        expr_free_vars fv;
+        fv(e);
+        unsigned count = 0;
+        for (unsigned i = 0, sz = fv.size(); i < sz; ++i) {
+            if (fv[i]) { count++; }
+        }
+        return count;
+    }
+
+    struct collect_uninterp_consts {
+        expr_ref_vector &m_out;
+        collect_uninterp_consts(expr_ref_vector &out) : m_out(out) {}
+        void operator()(expr *n) const {}
+        void operator()(app *n) {
+            if (is_uninterp_const(n)) m_out.push_back(n);
+        }
+    };
+
+    void get_uninterp_consts(expr *e, expr_ref_vector &out) {
+        collect_uninterp_consts proc(out);
+        for_each_expr(proc, e);
+    }
 } // namespace spacer
 template class rewriter_tpl<spacer::adhoc_rewriter_cfg>;
 template class rewriter_tpl<spacer::adhoc_rewriter_rpp>;
