@@ -59,16 +59,14 @@ Notes:
 namespace spacer {
 
 /// pob -- proof obligation
-pob::pob (pob* parent, pred_transformer& pt,
-          unsigned level, unsigned depth, bool add_to_parent):
-    m_ref_count (0),
-    m_parent (parent), m_pt (pt),
-    m_post (m_pt.get_ast_manager ()),
-    m_binding(m_pt.get_ast_manager()),
-    m_new_post (m_pt.get_ast_manager ()),
-    m_level (level), m_depth (depth),
-    m_open (true), m_use_farkas (true), m_in_queue(false),
-    m_weakness(0), m_blocked_lvl(0) {
+pob::pob(pob *parent, pred_transformer &pt, unsigned level, unsigned depth,
+         bool add_to_parent)
+    : m_ref_count(0), m_parent(parent), m_pt(pt),
+      m_post(m_pt.get_ast_manager()), m_binding(m_pt.get_ast_manager()),
+      m_new_post(m_pt.get_ast_manager()), m_level(level), m_depth(depth),
+      m_open(true), m_use_farkas(true), m_in_queue(false), m_weakness(0),
+      m_blocked_lvl(0), m_shd_concr(false),
+      m_concr_pat(m_pt.get_ast_manager()) {
     if (add_to_parent && m_parent) {
         m_parent->add_child(*this);
     }
@@ -1260,12 +1258,12 @@ void pred_transformer::get_pred_bg_invs(expr_ref_vector& out) {
 
 
 /// \brief Returns true if the obligation is already blocked by current lemmas
-bool pred_transformer::is_blocked (pob &n, unsigned &uses_level)
-{
+bool pred_transformer::is_blocked(pob &n, unsigned &uses_level,
+                                  model_ref *model = nullptr) {
     ensure_level (n.level ());
     prop_solver::scoped_level _sl (*m_solver, n.level ());
     m_solver->set_core (nullptr);
-    m_solver->set_model (nullptr);
+    m_solver->set_model(model);
 
     expr_ref_vector post(m), _aux(m);
     post.push_back (n.post ());
@@ -1279,7 +1277,6 @@ bool pred_transformer::is_blocked (pob &n, unsigned &uses_level)
     }
     return res == l_false;
 }
-
 
 bool pred_transformer::is_qblocked (pob &n) {
     // XXX currently disabled
@@ -3495,7 +3492,36 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
         STRACE("spacer_progress",
                tout << "This pob can be blocked by instantiation\n";);
     }
+    // Decide whether to concretize pob
+    // get a model that satisfies the pob and the current set of lemmas
+    // TODO: if push_pob is enabled, avoid calling is_blocked twice
+    if (m_concretize && n.should_concretize() &&
+        !n.pt().is_blocked(n, uses_level, &model)) {
+        TRACE("global", tout << "going to concretize pob " << mk_pp(n.post(), m)
+                             << ". Will attempt " << n.get_gas()
+                             << " more times\n";);
+        spacer::concretize concr(m);
+        expr_ref_vector conc_fml(m);
+        bool success = concr.mk_concr(expr_ref(n.post(), m), model, conc_fml,
+                                      n.get_concr_pat());
 
+        if (success) {
+            pob *new_pob = n.pt().mk_pob(n.parent(), n.level(), n.depth(),
+                                         mk_and(conc_fml), n.get_binding());
+
+            TRACE("concretize", tout << "pob" << mk_pp(n.post(), m)
+                                     << " is concretized into "
+                                     << mk_pp(new_pob->post(), m) << "\n";);
+            out.push_back(&(*new_pob));
+            out.push_back(&n);
+            IF_VERBOSE(1, verbose_stream()
+                              << " C " << std::fixed << std::setprecision(2)
+                              << watch.get_seconds() << "\n";);
+            m_stats.m_num_concretize++;
+            return l_undef;
+        }
+    }
+    model = nullptr;
     predecessor_eh();
 
     lbool res = n.pt ().is_reachable (n, &cube, &model, uses_level, is_concrete, r,

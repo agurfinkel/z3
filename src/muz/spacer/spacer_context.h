@@ -724,7 +724,7 @@ public:
     app* extend_initial (expr *e);
 
     /// \brief Returns true if the obligation is already blocked by current lemmas
-    bool is_blocked (pob &n, unsigned &uses_level);
+    bool is_blocked(pob &n, unsigned &uses_level, model_ref *model);
     /// \brief Returns true if the obligation is already blocked by current quantified lemmas
     bool is_qblocked (pob &n);
 
@@ -812,7 +812,13 @@ class pob {
     std::map<unsigned, stopwatch> m_expand_watches;
     unsigned m_blocked_lvl;
 
-public:
+    // should concretize cube
+    bool m_shd_concr;
+
+    // pattern identified for one of its lemmas
+    expr_ref m_concr_pat;
+
+  public:
     pob (pob* parent, pred_transformer& pt,
          unsigned level, unsigned depth=0, bool add_to_parent=true);
 
@@ -841,6 +847,9 @@ public:
 
     pob* parent () const { return m_parent.get (); }
 
+    expr_ref get_concr_pat() const { return m_concr_pat; }
+    bool should_concretize() const { return m_shd_concr; }
+    void set_concretize() { m_shd_concr = true; }
     pred_transformer& pt () const { return m_pt; }
     ast_manager& get_ast_manager () const { return m_pt.get_ast_manager (); }
     manager& get_manager () const { return m_pt.get_manager (); }
@@ -1097,6 +1106,7 @@ class context {
         unsigned m_num_restarts;
         unsigned m_num_lemmas_imported;
         unsigned m_num_lemmas_discarded;
+        unsigned m_num_concretize;
         stats() { reset(); }
         void reset() { memset(this, 0, sizeof(*this)); }
     };
