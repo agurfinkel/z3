@@ -146,5 +146,12 @@ namespace spacer {
     /// Returns number of free variables in a given expression
     unsigned get_num_vars(expr *e);
     void get_uninterp_consts(expr *a, expr_ref_vector &out);
+
+    bool contains_mod(expr_ref e);
+    // multiply fml with num and simplify rationals to ints
+    // assumes that fml is in sop form and is linear
+    void mul_and_simp(expr_ref &fml, rational num);
+
+    void mul_if_not_one(rational coeff, expr *e, expr_ref &res);
 }
 

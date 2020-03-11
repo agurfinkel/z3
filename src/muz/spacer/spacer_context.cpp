@@ -2351,6 +2351,7 @@ void context::updt_params() {
     m_pdr_bfs = m_params.spacer_gpdr_bfs();
     m_use_bg_invs = m_params.spacer_use_bg_invs();
     m_global = m_params.spacer_global();
+    m_use_sage = m_params.spacer_use_sage();
 
     if (m_use_gpdr) {
         // set options to be compatible with GPDR

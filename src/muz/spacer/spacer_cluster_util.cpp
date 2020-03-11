@@ -193,5 +193,53 @@ void normalize_order(expr *e, expr_ref &out) {
     STRACE("spacer_normalize_order'",
            tout << "OUT After :" << mk_pp(out, out.m()) << "\n";);
 }
+void mul_and_simp(expr_ref &fml, rational num) {
+    ast_manager &m = fml.get_manager();
+    arith_util m_arith(m);
+    SASSERT(m_arith.is_arith_expr(fml) || is_var(fml) ||
+            is_uninterp_const(fml));
+    if (num.is_one()) return;
+
+    if (is_uninterp_const(fml) || is_var(fml)) {
+        fml = m_arith.mk_mul(m_arith.mk_numeral(num, num.is_int()), fml);
+        return;
+    }
+    rational val;
+    if (m_arith.is_numeral(fml, val)) {
+        val = val * num;
+        fml = m_arith.mk_numeral(val, val.is_int());
+        return;
+    }
+    app *fml_app = to_app(fml);
+    unsigned N = fml_app->get_num_args();
+    expr_ref_vector nw_args(m);
+    for (unsigned i = 0; i < N; i++) {
+        expr *chld = fml_app->get_arg(i);
+        if (m_arith.is_mul(chld)) {
+            expr_ref numeral(to_app(chld)->get_arg(0), m);
+            rational val;
+            SASSERT(m_arith.is_numeral(numeral));
+            m_arith.is_numeral(numeral, val);
+            rational nw_coeff = val * num;
+            expr_ref nw_prd(m);
+            mul_if_not_one(nw_coeff, to_app(chld)->get_arg(1), nw_prd);
+            nw_args.push_back(nw_prd);
+        } else {
+            nw_args.push_back(
+                m_arith.mk_mul(m_arith.mk_numeral(num, num.is_int()), chld));
+        }
+    }
+    fml = m.mk_app(fml_app->get_family_id(), fml_app->get_decl_kind(),
+                   nw_args.size(), nw_args.c_ptr());
+}
+
+void mul_if_not_one(rational coeff, expr *e, expr_ref &res) {
+    ast_manager &m = res.get_manager();
+    arith_util m_arith(m);
+    if (coeff == rational::one())
+        res = expr_ref(e, m);
+    else
+        res = m_arith.mk_mul(m_arith.mk_numeral(coeff, coeff.is_int()), e);
+}
 } // namespace spacer
 template class rewriter_tpl<spacer::term_ordered_rpp>;
