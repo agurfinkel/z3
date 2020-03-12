@@ -67,12 +67,14 @@ pob::pob(pob *parent, pred_transformer &pt, unsigned level, unsigned depth,
       m_open(true), m_use_farkas(true), m_in_queue(false), m_weakness(0),
       m_blocked_lvl(0), m_is_conj(false),
       m_conj_pattern(m_pt.get_ast_manager()), m_shd_concr(false),
-      m_concr_pat(m_pt.get_ast_manager()) {
+      m_concr_pat(m_pt.get_ast_manager()),
+      m_subsume_pob(m_pt.get_ast_manager()), m_is_subsume_pob(false), m_gas(0) {
     if (add_to_parent && m_parent) {
         m_parent->add_child(*this);
     }
     if (m_parent) {
         m_is_conj = m_parent->is_conj();
+        m_is_subsume_pob = m_parent->is_subsume_pob();
         m_gas = m_parent->get_gas();
     }
 }
@@ -3085,6 +3087,8 @@ void context::log_expand_pob(pob &n) {
         if (n.parent()) pob_id = std::to_string(n.parent()->post()->get_id());
 
         *m_trace_stream << "** expand-pob: " << n.pt().head()->get_name()
+                        << (n.is_conj() ? "CONJ" : "")
+                        << (n.is_subsume_pob() ? " SUBS" : "")
                         << " level: " << n.level()
                         << " depth: " << (n.depth() - m_pob_queue.min_depth())
                         << " exprID: " << n.post()->get_id() << " pobID: " << pob_id << "\n"
@@ -3092,6 +3096,8 @@ void context::log_expand_pob(pob &n) {
     }
 
     TRACE("spacer", tout << "expand-pob: " << n.pt().head()->get_name()
+                         << (n.is_conj() ? "CONJ" : "")
+                         << (n.is_subsume_pob() ? " SUBS" : "")
                          << " level: " << n.level()
                          << " depth: " << (n.depth() - m_pob_queue.min_depth())
                          << " fvsz: " << n.get_free_vars_size() << "\n"
@@ -3099,6 +3105,8 @@ void context::log_expand_pob(pob &n) {
 
     STRACE("spacer_progress",
            tout << "** expand-pob: " << n.pt().head()->get_name()
+                << (n.is_conj() ? "CONJ" : "")
+                << (n.is_subsume_pob() ? " SUBS" : "")
                 << " level: " << n.level()
                 << " depth: " << (n.depth() - m_pob_queue.min_depth()) << "\n"
                 << mk_epp(n.post(), m) << "\n\n";);
@@ -3469,14 +3477,15 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
     log_expand_pob(n);
 
     stopwatch watch;
-    IF_VERBOSE (1, verbose_stream () << "expand: " << n.pt ().head ()->get_name ()
-                << " (" << n.level () << ", "
-                << (n.depth () - m_pob_queue.min_depth ()) << ") "
-                << (n.use_farkas_generalizer () ? "FAR " : "SUB ")
-                << " w(" << n.weakness() << ") "
-                << n.post ()->get_id ();
-                verbose_stream().flush ();
-                watch.start (););
+    IF_VERBOSE(1, verbose_stream()
+                      << "expand: " << n.pt().head()->get_name() << " ("
+                      << n.level() << ", "
+                      << (n.depth() - m_pob_queue.min_depth()) << ") "
+                      << (n.use_farkas_generalizer() ? "FAR " : "SUB ")
+                      << (n.is_conj() ? "CONJ " : "")
+                      << (n.is_subsume_pob() ? " SUBS" : "") << " w("
+                      << n.weakness() << ") " << n.post()->get_id();
+               verbose_stream().flush(); watch.start(););
 
     // used in case n is unreachable
     unsigned uses_level = infty_level ();
@@ -3687,6 +3696,36 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                 }
             }
         }
+        if (n.get_subsume_pob().size() > 0 && n.get_gas() > 0) {
+            expr_ref c(m);
+            c = mk_and(n.get_subsume_pob());
+            unsigned level = n.get_may_pob_lvl();
+            pob *f = n.pt().find_pob(&get_root(), c);
+            // skip if a similar pob is already in the queue
+            if (!f || !f->is_in_queue()) {
+                // create pob conjecture at the desired depth
+                app_ref_vector empty_binding(m);
+                pob *new_pob = n.pt().mk_pob(&get_root(), level, n.depth(), c,
+                                             empty_binding);
+                // since the level of pob is going to be incremented, new pob
+                // will have higher priority
+                new_pob->set_subsume_pob();
+                unsigned gas = n.get_gas();
+                SASSERT(gas > 0);
+                new_pob->set_gas(gas - 1);
+                n.set_gas(gas - 1);
+                TRACE("global",
+                      tout << "Attempting to block pob " << mk_pp(n.post(), m)
+                           << " using generalization "
+                           << mk_pp(new_pob->post(), m) << " with gas "
+                           << new_pob->get_gas() << "\n";);
+                out.push_back(&(*new_pob));
+            } else
+                TRACE("global",
+                      tout << "duplicate pob conjecture found. Did not "
+                              "add to pob_queue\n";);
+        }
+
         // conjecture pob
         if (m_conjecture && n.get_conj_pattern().size() > 0 &&
             n.get_gas() > 0) {
@@ -4244,9 +4283,11 @@ inline bool pob_lt_proc::operator() (const pob *pn1, const pob *pn2) const
 
     if (n1.depth() != n2.depth()) { return n1.depth() < n2.depth(); }
 
+    if (n1.is_subsume_pob() != n2.is_subsume_pob()) { return n1.is_subsume_pob(); }
     if (n1.is_conj() != n2.is_conj()) { return n1.is_conj(); }
 
     if (n1.get_gas() != n2.get_gas()) { return n1.get_gas() > n2.get_gas(); }
+
     // -- a more deterministic order of proof obligations in a queue
     // if (!n1.get_context ().get_params ().spacer_nondet_tie_break ())
     {

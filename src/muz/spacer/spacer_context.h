@@ -824,8 +824,13 @@ class pob {
     // pattern identified for one of its lemmas
     expr_ref m_concr_pat;
 
+    // a pob that subsumes all lemmas that block this pob
+    expr_ref_vector m_subsume_pob;
     // level at which may pob is to be added
     unsigned m_may_lvl;
+
+    // is a subsume pob
+    bool m_is_subsume_pob;
 
     // gas decides how much time is spent in blocking this (may) pob
     unsigned m_gas;
@@ -840,8 +845,14 @@ class pob {
     void set_post(expr *post, app_ref_vector const &binding);
     void set_post(expr *post);
 
+    void set_subsume_pob(const expr_ref_vector &expr) {
+        m_may_lvl = 0;
+        m_subsume_pob.reset();
+        m_subsume_pob.append(expr);
+    }
     void set_may_pob_lvl(unsigned l) { m_may_lvl = l; }
     unsigned get_may_pob_lvl() { return m_may_lvl; }
+    expr_ref_vector const &get_subsume_pob() const { return m_subsume_pob; }
     unsigned weakness() {return m_weakness;}
     void bump_weakness() {m_weakness++;}
     void reset_weakness() {m_weakness=0;}
@@ -864,13 +875,16 @@ class pob {
     bool is_conj() const { return m_is_conj; }
     void set_conj() { m_is_conj = true; }
 
+    void set_concr_pat(expr_ref pattern) { m_concr_pat = pattern; }
     expr_ref get_concr_pat() const { return m_concr_pat; }
     expr_ref_vector const &get_conj_pattern() const { return m_conj_pattern; }
     void set_conj_pattern(expr_ref_vector &pattern) {
         m_conj_pattern.reset();
         m_conj_pattern.append(pattern);
     }
-    bool is_may_pob() const { return is_conj(); }
+    bool is_subsume_pob() const { return m_is_subsume_pob; }
+    void set_subsume_pob() { m_is_subsume_pob = true; }
+    bool is_may_pob() const { return is_subsume_pob() || is_conj(); }
     unsigned get_gas() const { return m_gas; }
     void set_gas(unsigned n) { m_gas = n; }
 
