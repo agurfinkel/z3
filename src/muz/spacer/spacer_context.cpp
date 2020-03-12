@@ -71,7 +71,10 @@ pob::pob(pob *parent, pred_transformer &pt, unsigned level, unsigned depth,
     if (add_to_parent && m_parent) {
         m_parent->add_child(*this);
     }
-    if (m_parent) { m_is_conj = m_parent->is_conj(); }
+    if (m_parent) {
+        m_is_conj = m_parent->is_conj();
+        m_gas = m_parent->get_gas();
+    }
 }
 
 void pob::set_post(expr* post) {
@@ -3220,14 +3223,22 @@ bool context::check_reachability ()
             break;
         case l_false:
             SASSERT(m_pob_queue.size() == old_sz);
+            // re-queue all pobs introduced by global gen and any pobs that can be blocked at a higher level
             for (auto pob : new_pobs) {
-                if (is_requeue(*pob)) {m_pob_queue.push(*pob);}
+                if ((pob->is_may_pob() && pob->post() != node->post()) || is_requeue(*pob)) {
+                    m_pob_queue.push(*pob);
+                }
             }
 
             if (m_pob_queue.is_root(*node)) {return false;}
             break;
         case l_undef:
             SASSERT(m_pob_queue.size() == old_sz);
+            // collapse may pobs if the reachability of one of them cannot
+            // be estimated
+            if ((node->is_may_pob()) && new_pobs.size() == 0) {
+                close_all_may_parents(node);
+            }
             for (auto pob : new_pobs) {m_pob_queue.push(*pob);}
             break;
         }
@@ -3494,6 +3505,11 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
         STRACE("spacer_progress",
                tout << "This pob can be blocked by instantiation\n";);
     }
+    if ((n.is_may_pob()) && n.get_gas() == 0) {
+        TRACE("global", tout << "Cant prove may pob. Collapsing "
+                             << mk_pp(n.post(), m) << "\n";);
+        return l_undef;
+    }
     // Decide whether to concretize pob
     // get a model that satisfies the pob and the current set of lemmas
     // TODO: if push_pob is enabled, avoid calling is_blocked twice
@@ -3519,6 +3535,12 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
             IF_VERBOSE(1, verbose_stream()
                               << " C " << std::fixed << std::setprecision(2)
                               << watch.get_seconds() << "\n";);
+            unsigned gas = n.get_gas();
+            SASSERT(gas > 0);
+            new_pob->set_gas(gas);
+            // decrease gas for n to limit the number of times it is going to be
+            // split
+            n.set_gas(gas - 1);
             m_stats.m_num_concretize++;
             return l_undef;
         }
@@ -3666,7 +3688,8 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
             }
         }
         // conjecture pob
-        if (m_conjecture && n.get_conj_pattern().size() > 0) {
+        if (m_conjecture && n.get_conj_pattern().size() > 0 &&
+            n.get_gas() > 0) {
             expr_ref c(m);
             c = mk_and(n.get_conj_pattern());
             unsigned level = n.get_may_pob_lvl();
@@ -3678,6 +3701,10 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                 f = n.pt().mk_pob(&get_root(), level, n.depth(), c,
                                   empty_binding);
                 f->set_conj();
+                unsigned gas = n.get_gas();
+                SASSERT(gas > 0);
+                f->set_gas(gas - 1);
+                n.set_gas(gas - 1);
                 out.push_back(f);
                 TRACE("global", tout << " conjecture " << mk_pp(n.post(), m)
                                      << " id is " << n.post()->get_id()
@@ -3702,6 +3729,12 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
     }
     case l_undef:
         // something went wrong
+        // if the pob is a may pob, bail out
+        if (n.is_may_pob()) {
+            n.close();
+            m_stats.m_expand_pob_undef++;
+            return l_undef;
+        }
         if (n.weakness() < 10 /* MAX_WEAKENSS */) {
             bool has_new_child = false;
             SASSERT(m_weak_abs);
@@ -3998,6 +4031,10 @@ bool context::create_children(pob& n, datalog::rule const& r,
                        !mdl.is_true(n.post())))
     { kid->reset_derivation(); }
 
+    if (kid->is_may_pob()) {
+        SASSERT(n.get_gas() > 0);
+        kid->set_gas(n.get_gas() - 1);
+    }
     out.push_back(kid);
     m_stats.m_num_queries++;
     return true;
@@ -4207,6 +4244,9 @@ inline bool pob_lt_proc::operator() (const pob *pn1, const pob *pn2) const
 
     if (n1.depth() != n2.depth()) { return n1.depth() < n2.depth(); }
 
+    if (n1.is_conj() != n2.is_conj()) { return n1.is_conj(); }
+
+    if (n1.get_gas() != n2.get_gas()) { return n1.get_gas() > n2.get_gas(); }
     // -- a more deterministic order of proof obligations in a queue
     // if (!n1.get_context ().get_params ().spacer_nondet_tie_break ())
     {
@@ -4259,6 +4299,20 @@ inline bool pob_lt_proc::operator() (const pob *pn1, const pob *pn2) const
     //   return &n1 < &n2;
 }
 
-
-
+// set gas of each may parent to 0
+// TODO: close siblings as well. kids of a pob are not stored in the pob
+void context::close_all_may_parents(pob_ref node) {
+    pob_ref_vector to_do;
+    to_do.push_back(node.get());
+    while (to_do.size() != 0) {
+        pob_ref t = to_do.back();
+        t->set_gas(0);
+        if (t->is_may_pob()) {
+            t->close();
+        } else
+            break;
+        to_do.pop_back();
+        to_do.push_back(t->parent());
+    }
+}
 }

@@ -827,6 +827,9 @@ class pob {
     // level at which may pob is to be added
     unsigned m_may_lvl;
 
+    // gas decides how much time is spent in blocking this (may) pob
+    unsigned m_gas;
+
   public:
     pob (pob* parent, pred_transformer& pt,
          unsigned level, unsigned depth=0, bool add_to_parent=true);
@@ -867,7 +870,11 @@ class pob {
         m_conj_pattern.reset();
         m_conj_pattern.append(pattern);
     }
-    bool should_concretize() const { return m_shd_concr; }
+    bool is_may_pob() const { return is_conj(); }
+    unsigned get_gas() const { return m_gas; }
+    void set_gas(unsigned n) { m_gas = n; }
+
+    bool should_concretize() const { return m_shd_concr && m_gas > 0; }
     void set_concretize() { m_shd_concr = true; }
     pred_transformer& pt () const { return m_pt; }
     ast_manager& get_ast_manager () const { return m_pt.get_ast_manager (); }
@@ -1355,6 +1362,8 @@ public:
     bool is_inductive();
 
     bool use_sage() { return m_use_sage; }
+    // close all parents of may pob when gas runs out
+    void close_all_may_parents(pob_ref node);
 
     // three different solvers with three different sets of parameters
     // different solvers are used for different types of queries in spacer
