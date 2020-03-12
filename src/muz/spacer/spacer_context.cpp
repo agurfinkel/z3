@@ -65,11 +65,13 @@ pob::pob(pob *parent, pred_transformer &pt, unsigned level, unsigned depth,
       m_post(m_pt.get_ast_manager()), m_binding(m_pt.get_ast_manager()),
       m_new_post(m_pt.get_ast_manager()), m_level(level), m_depth(depth),
       m_open(true), m_use_farkas(true), m_in_queue(false), m_weakness(0),
-      m_blocked_lvl(0), m_shd_concr(false),
+      m_blocked_lvl(0), m_is_conj(false),
+      m_conj_pattern(m_pt.get_ast_manager()), m_shd_concr(false),
       m_concr_pat(m_pt.get_ast_manager()) {
     if (add_to_parent && m_parent) {
         m_parent->add_child(*this);
     }
+    if (m_parent) { m_is_conj = m_parent->is_conj(); }
 }
 
 void pob::set_post(expr* post) {
@@ -3663,7 +3665,28 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                 }
             }
         }
-
+        // conjecture pob
+        if (m_conjecture && n.get_conj_pattern().size() > 0) {
+            expr_ref c(m);
+            c = mk_and(n.get_conj_pattern());
+            unsigned level = n.get_may_pob_lvl();
+            pob *f = n.pt().find_pob(&get_root(), c);
+            // skip if new pob is already in the queue
+            if (!f || !f->is_in_queue()) {
+                // create abstract pob
+                app_ref_vector empty_binding(m);
+                f = n.pt().mk_pob(&get_root(), level, n.depth(), c,
+                                  empty_binding);
+                f->set_conj();
+                out.push_back(f);
+                TRACE("global", tout << " conjecture " << mk_pp(n.post(), m)
+                                     << " id is " << n.post()->get_id()
+                                     << "\n into pob " << c << " id is "
+                                     << f->post()->get_id() << "\n";);
+            } else
+                TRACE("global", tout << "duplicate conjecture found. Did not "
+                                        "add to pob_queue\n";);
+        }
         // schedule the node to be placed back in the queue
         n.inc_level();
         out.push_back(&n);

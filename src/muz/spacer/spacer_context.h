@@ -812,11 +812,20 @@ class pob {
     std::map<unsigned, stopwatch> m_expand_watches;
     unsigned m_blocked_lvl;
 
+    // true if this pob is a conjecture
+    bool m_is_conj;
+
+    // pattern with which conjecture was created
+    expr_ref_vector m_conj_pattern;
+
     // should concretize cube
     bool m_shd_concr;
 
     // pattern identified for one of its lemmas
     expr_ref m_concr_pat;
+
+    // level at which may pob is to be added
+    unsigned m_may_lvl;
 
   public:
     pob (pob* parent, pred_transformer& pt,
@@ -828,6 +837,8 @@ class pob {
     void set_post(expr *post, app_ref_vector const &binding);
     void set_post(expr *post);
 
+    void set_may_pob_lvl(unsigned l) { m_may_lvl = l; }
+    unsigned get_may_pob_lvl() { return m_may_lvl; }
     unsigned weakness() {return m_weakness;}
     void bump_weakness() {m_weakness++;}
     void reset_weakness() {m_weakness=0;}
@@ -847,7 +858,15 @@ class pob {
 
     pob* parent () const { return m_parent.get (); }
 
+    bool is_conj() const { return m_is_conj; }
+    void set_conj() { m_is_conj = true; }
+
     expr_ref get_concr_pat() const { return m_concr_pat; }
+    expr_ref_vector const &get_conj_pattern() const { return m_conj_pattern; }
+    void set_conj_pattern(expr_ref_vector &pattern) {
+        m_conj_pattern.reset();
+        m_conj_pattern.append(pattern);
+    }
     bool should_concretize() const { return m_shd_concr; }
     void set_concretize() { m_shd_concr = true; }
     pred_transformer& pt () const { return m_pt; }
