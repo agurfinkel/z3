@@ -151,6 +151,13 @@ namespace spacer {
     /// Checks whether there is a var*u_c term
     bool has_nonlinear_var_mul(expr *e, ast_manager &m);
 
+    // check whether lit is an instance of mono_var_pattern
+    bool is_mono_var(expr *lit, ast_manager &m, arith_util &a_util);
+
+    // a mono_var_pattern has only one variable in the whole expression and is
+    // linear. lit is the literal with the variable
+    bool should_conjecture(const expr_ref &p, expr_ref &lit);
+
     // drop all literals from n that match leq_lit. Returns whether some have
     // been dropped or not
     bool drop_lit(expr_ref_vector &in, expr_ref &lit, expr_ref_vector &out);

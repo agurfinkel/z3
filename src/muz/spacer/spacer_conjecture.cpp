@@ -26,6 +26,34 @@
 
 namespace spacer {
 
+bool is_mono_var(expr *pattern, ast_manager &m, arith_util &a_util) {
+    expr *e;
+    if (m.is_not(pattern, e)) return is_mono_var(e, m, a_util);
+    if (a_util.is_arith_expr(to_app(pattern))) {
+        return get_num_vars(pattern) == 1 && !has_nonlinear_var_mul(pattern, m);
+    }
+    return false;
+}
+
+bool should_conjecture(const expr_ref &pattern, expr_ref &leq_lit) {
+    if (get_num_vars(pattern) != 1) return false;
+    ast_manager &m = leq_lit.m();
+    arith_util a_util(m);
+    // if the pattern has multiple literals, check whether exactly one of them
+    // is leq
+    expr_ref_vector pattern_and(m);
+    pattern_and.push_back(pattern);
+    flatten_and(pattern_and);
+    unsigned count = 0;
+    for (auto *lit : pattern_and) {
+        if (is_mono_var(lit, m, a_util)) {
+            leq_lit = lit;
+            count++;
+        }
+    }
+    return count == 1;
+}
+
 bool drop_lit(expr_ref_vector &fml_vec, expr_ref &lit,
               expr_ref_vector &abs_fml) {
     abs_fml.reset();
