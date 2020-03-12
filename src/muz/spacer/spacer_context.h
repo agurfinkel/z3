@@ -1185,6 +1185,7 @@ class context {
     unsigned             m_inductive_lvl;
     unsigned             m_expanded_lvl;
     ptr_buffer<lemma_generalizer>  m_lemma_generalizers;
+    lemma_generalizer    *m_global_gen;
     lemma_cluster_finder *m_lmma_cluster;
     stats                m_stats;
     model_converter_ref  m_mc;

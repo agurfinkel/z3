@@ -2279,6 +2279,7 @@ context::context(fp_params const& params, ast_manager& m) :
     m_last_result(l_undef),
     m_inductive_lvl(0),
     m_expanded_lvl(0),
+    m_global_gen(nullptr),
     m_json_marshaller(this),
     m_trace_stream(nullptr) {
 
@@ -2697,6 +2698,10 @@ void context::init_lemma_generalizers()
         m_lemma_generalizers.push_back(alloc(lemma_array_eq_generalizer, *this));
     }
 
+    if (m_global) {
+        m_global_gen = alloc(lemma_global_generalizer, *this);
+        m_lemma_generalizers.push_back(m_global_gen);
+    }
     if (m_validate_lemmas) {
         m_lemma_generalizers.push_back(alloc(lemma_sanity_checker, *this));
     }
@@ -3676,6 +3681,7 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                                  << mk_pp(n.post(), m) << " with id "
                                  << n.post()->get_id() << "\n lemma learned "
                                  << mk_and(lemma_pob->get_cube()) << "\n";);
+            if (m_global_gen != nullptr) (*m_global_gen)(lemma_pob);
         }
         DEBUG_CODE(lemma_sanity_checker sanity_checker(*this);
                    sanity_checker(lemma_pob););
