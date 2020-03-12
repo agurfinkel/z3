@@ -58,7 +58,21 @@ bool lemma_global_generalizer::core(lemma_ref &lemma) {
              : lc.get_lemmas()) {
             tout << "\n \t" << lemma.get_lemma()->get_cube();
         });
-    // TODO add actions
+    if (has_nonlinear_var_mul(pattern, m)) {
+        m_st.m_num_non_lin++;
+        if (pt_cls->get_gas() == 0) {
+            m_st.m_num_cls_ofg++;
+            return false;
+        }
+        TRACE("global",
+              tout << "Found non linear pattern. Marked to concretize \n";);
+        lemma->get_pob()->set_concr_pat(pattern);
+        lemma->get_pob()->set_concretize();
+        lemma->get_pob()->set_gas(lc.get_pob_gas());
+        pt_cls->dec_gas();
+        return false;
+    }
+    // TODO add conjecture and subsume
     return false;
 }
 

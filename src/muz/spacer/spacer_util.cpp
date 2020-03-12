@@ -1011,6 +1011,36 @@ namespace {
         for_each_expr(proc, e);
     }
 
+    // HG : checks whether n contains a non linear multiplication containing a
+    // variable
+    namespace has_nonlinear_var_mul_ns {
+    struct found {};
+    struct proc {
+        arith_util m_arith;
+        proc(ast_manager &m) : m_arith(m) {}
+        bool is_numeral(expr *e) const {
+            // XXX possibly handle cases where e simplifies to a numeral
+            return m_arith.is_numeral(e);
+        }
+        void operator()(var *n) const {}
+        void operator()(quantifier *q) const {}
+        void operator()(app const *n) const {
+            expr *e1, *e2;
+            if (m_arith.is_mul(n, e1, e2) && ((is_var(e1) && !is_numeral(e2)) ||
+                                              (is_var(e2) && !is_numeral(e1))))
+                throw found();
+        }
+    };
+    } // namespace has_nonlinear_var_mul_ns
+
+    bool has_nonlinear_var_mul(expr *e, ast_manager &m) {
+        has_nonlinear_var_mul_ns::proc proc(m);
+        try {
+            for_each_expr(proc, e);
+        } catch (const has_nonlinear_var_mul_ns::found &) { return true; }
+        return false;
+    }
+
     namespace contains_mod_ns {
     struct found {};
     struct contains_mod_proc {
