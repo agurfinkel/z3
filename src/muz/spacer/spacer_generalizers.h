@@ -183,7 +183,7 @@ class lemma_global_generalizer : public lemma_generalizer {
     // save fresh constants for mbp
     app_ref_vector m_dim_frsh_cnsts;
     expr_ref_vector m_dim_vars;
-    bool m_exact;
+    bool m_syn_cvx_cls;
     // solver to get model for computing mbp and to check whether cvx_cls ==>
     // mbp
     ref<solver> m_solver;
