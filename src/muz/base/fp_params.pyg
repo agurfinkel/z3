@@ -185,4 +185,5 @@ def_module_params('fp',
                           ('spacer.conjecture', BOOL, False, 'Enable conjecturing new pobs'),
                           ('spacer.global', BOOL, False, 'Enable global generalization of lemmas'),
                           ('spacer.use_sage', BOOL, False, 'Enable kernel computation using Sage'),
+                          ('spacer.use_iuc', BOOL, True, 'Enable Interpolating Unsat Core(IUC) for lemma generalization'),
                           ))

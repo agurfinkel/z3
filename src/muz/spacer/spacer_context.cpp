@@ -1341,7 +1341,7 @@ lbool pred_transformer::is_reachable(pob& n, expr_ref_vector* core,
                                      model_ref* model, unsigned& uses_level,
                                      bool& is_concrete, datalog::rule const*& r,
                                      bool_vector& reach_pred_used,
-                                     unsigned& num_reuse_reach)
+                                     unsigned& num_reuse_reach, bool use_iuc)
 {
     TRACE("spacer",
           tout << "is-reachable: " << head()->get_name() << " level: "
@@ -1355,7 +1355,8 @@ lbool pred_transformer::is_reachable(pob& n, expr_ref_vector* core,
 
     // prepare the solver
     prop_solver::scoped_level _sl(*m_solver, n.level());
-    prop_solver::scoped_subset_core _sc (*m_solver, !n.use_farkas_generalizer ());
+    prop_solver::scoped_subset_core _sc(
+        *m_solver, !(use_iuc && n.use_farkas_generalizer()));
     prop_solver::scoped_weakness _sw(*m_solver, 0,
                                      ctx.weak_abs() ? n.weakness() : UINT_MAX);
     m_solver->set_core(core);
@@ -2360,6 +2361,7 @@ void context::updt_params() {
     m_use_sage = m_params.spacer_use_sage();
     m_concretize = m_params.spacer_concretize();
 
+    m_use_iuc = m_params.spacer_use_iuc();
     if (m_use_gpdr) {
         // set options to be compatible with GPDR
         m_weak_abs = false;
@@ -3301,9 +3303,9 @@ bool context::is_reachable(pob &n)
     unsigned saved = n.level ();
     // TBD: don't expose private field
     n.m_level = infty_level ();
-    lbool res = n.pt().is_reachable(n, nullptr, &mdl,
-                                    uses_level, is_concrete, r,
-                                    reach_pred_used, num_reuse_reach);
+    lbool res =
+        n.pt().is_reachable(n, nullptr, &mdl, uses_level, is_concrete, r,
+                            reach_pred_used, num_reuse_reach, m_use_iuc);
     n.m_level = saved;
 
     if (res != l_true || !is_concrete) {
@@ -3557,8 +3559,9 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
     model = nullptr;
     predecessor_eh();
 
-    lbool res = n.pt ().is_reachable (n, &cube, &model, uses_level, is_concrete, r,
-                                      reach_pred_used, num_reuse_reach);
+    lbool res =
+        n.pt().is_reachable(n, &cube, &model, uses_level, is_concrete, r,
+                            reach_pred_used, num_reuse_reach, m_use_iuc);
     if (model) model->set_model_completion(false);
     if (res == l_undef && model) res = handle_unknown(n, r, *model);
 
