@@ -66,8 +66,8 @@ pob::pob(pob *parent, pred_transformer &pt, unsigned level, unsigned depth,
       m_new_post(m_pt.get_ast_manager()), m_level(level), m_depth(depth),
       m_open(true), m_use_farkas(true), m_in_queue(false), m_weakness(0),
       m_blocked_lvl(0), m_is_conj(false),
-      m_conj_pattern(m_pt.get_ast_manager()), m_shd_concr(false),
-      m_concr_pat(m_pt.get_ast_manager()),
+      m_conj_pattern(m_pt.get_ast_manager()), m_local_gen(true),
+      m_shd_concr(false), m_concr_pat(m_pt.get_ast_manager()),
       m_subsume_pob(m_pt.get_ast_manager()), m_is_subsume_pob(false), m_gas(0) {
     if (add_to_parent && m_parent) {
         m_parent->add_child(*this);
@@ -3652,36 +3652,46 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
 
         pob_ref nref(&n);
         // -- create lemma from a pob and last unsat core
-        lemma_ref lemma = alloc(class lemma, pob_ref(&n), cube, uses_level);
+        lemma_ref lemma_pob;
+        if (n.do_local_gen()) {
+            lemma_pob = alloc(class lemma, pob_ref(&n), cube, uses_level);
 
-        // -- run all lemma generalizers
-        for (unsigned i = 0;
-             // -- only generalize if lemma was constructed using farkas
-             n.use_farkas_generalizer () && !lemma->is_false() &&
-                 i < m_lemma_generalizers.size(); ++i) {
-            checkpoint ();
-            (*m_lemma_generalizers[i])(lemma);
+            // -- run all lemma generalizers
+            for (unsigned i = 0;
+                 // -- only generalize if lemma was constructed using farkas
+                 n.use_farkas_generalizer() && !lemma_pob->is_false() &&
+                 i < m_lemma_generalizers.size();
+                 ++i) {
+                checkpoint();
+                (*m_lemma_generalizers[i])(lemma_pob);
+            }
+        } else {
+            expr_ref_vector pob_cube(m);
+            n.get_simp_post(pob_cube);
+            lemma_pob = alloc(class lemma, pob_ref(&n), pob_cube, n.level());
+            TRACE("global", tout << " stopped local gen on pob "
+                                 << mk_pp(n.post(), m) << " with id "
+                                 << n.post()->get_id() << "\n lemma learned "
+                                 << mk_and(lemma_pob->get_cube()) << "\n";);
         }
-        DEBUG_CODE(
-            lemma_sanity_checker sanity_checker(*this);
-            sanity_checker(lemma);
-            );
+        DEBUG_CODE(lemma_sanity_checker sanity_checker(*this);
+                   sanity_checker(lemma_pob););
 
+        TRACE("spacer",
+              tout << "invariant state: "
+                   << (is_infty_level(lemma_pob->level()) ? "(inductive)" : "")
+                   << mk_pp(lemma_pob->get_expr(), m) << "\n";);
 
-        TRACE("spacer", tout << "invariant state: "
-              << (is_infty_level(lemma->level())?"(inductive)":"")
-              <<  mk_pp(lemma->get_expr(), m) << "\n";);
-
-        bool v = n.pt().add_lemma (lemma.get());
+        bool v = n.pt().add_lemma(lemma_pob.get());
         if (v) {
-            if (m_global) m_lmma_cluster->cluster(lemma);
+            if (m_global) m_lmma_cluster->cluster(lemma_pob);
             m_stats.m_num_lemmas++;
         }
 
         // Optionally update the node to be the negation of the lemma
         if (v && m_use_lemma_as_pob) {
             expr_ref c(m);
-            c = mk_and(lemma->get_cube());
+            c = mk_and(lemma_pob->get_cube());
             // check that the post condition is different
             if (c  != n.post()) {
                 pob *f = n.pt().find_pob(n.parent(), c);
@@ -4355,5 +4365,12 @@ void context::close_all_may_parents(pob_ref node) {
         to_do.pop_back();
         to_do.push_back(t->parent());
     }
+}
+// construct a simplified version of the post
+void pob::get_simp_post(expr_ref_vector &pob_cube) {
+    pob_cube.reset();
+    pob_cube.push_back(m_post);
+    flatten_and(pob_cube);
+    simplify_bounds(pob_cube);
 }
 }

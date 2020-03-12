@@ -818,6 +818,8 @@ class pob {
     // pattern with which conjecture was created
     expr_ref_vector m_conj_pattern;
 
+    // should do local generalizations on pob
+    bool m_local_gen;
     // should concretize cube
     bool m_shd_concr;
 
@@ -888,6 +890,9 @@ class pob {
     unsigned get_gas() const { return m_gas; }
     void set_gas(unsigned n) { m_gas = n; }
 
+    bool do_local_gen() const { return m_local_gen; }
+    void stop_local_gen() { m_local_gen = false; }
+    void get_simp_post(expr_ref_vector &res);
     bool should_concretize() const { return m_shd_concr && m_gas > 0; }
     void set_concretize() { m_shd_concr = true; }
     pred_transformer& pt () const { return m_pt; }
