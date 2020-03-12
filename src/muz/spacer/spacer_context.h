@@ -687,6 +687,8 @@ public:
         return m_pobs.mk_pob(parent, level, depth, post);
     }
 
+    // extract all the numerals appearing in the init and transition relations
+    void extract_nums(vector<rational> &res) const;
     lbool is_reachable(pob& n, expr_ref_vector* core, model_ref *model,
                        unsigned& uses_level, bool& is_concrete,
                        datalog::rule const*& r,
@@ -834,6 +836,8 @@ class pob {
     // is a subsume pob
     bool m_is_subsume_pob;
 
+    // should apply expand bnd generalization on pob
+    bool m_expand_bnd;
     // gas decides how much time is spent in blocking this (may) pob
     unsigned m_gas;
 
@@ -877,6 +881,9 @@ class pob {
     bool is_conj() const { return m_is_conj; }
     void set_conj() { m_is_conj = true; }
 
+    void stop_expand_bnd() { m_expand_bnd = false; }
+    bool expand_bnd() { return m_expand_bnd; }
+    void set_expand_bnd() { m_expand_bnd = true; }
     void set_concr_pat(expr_ref pattern) { m_concr_pat = pattern; }
     expr_ref get_concr_pat() const { return m_concr_pat; }
     expr_ref_vector const &get_conj_pattern() const { return m_conj_pattern; }
@@ -1186,6 +1193,7 @@ class context {
     unsigned             m_expanded_lvl;
     ptr_buffer<lemma_generalizer>  m_lemma_generalizers;
     lemma_generalizer    *m_global_gen;
+    lemma_generalizer    *m_expand_bnd_gen;
     lemma_cluster_finder *m_lmma_cluster;
     stats                m_stats;
     model_converter_ref  m_mc;
@@ -1220,6 +1228,7 @@ class context {
     bool                 m_pdr_bfs;
     bool                 m_use_bg_invs;
     bool                 m_global;
+    bool m_expand_bnd;
     bool                 m_conjecture;
     bool                 m_use_sage;
     bool                 m_concretize;

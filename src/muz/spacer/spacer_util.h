@@ -171,5 +171,7 @@ namespace spacer {
     void mul_and_simp(expr_ref &fml, rational num);
 
     void mul_if_not_one(rational coeff, expr *e, expr_ref &res);
+    // get all numeral values in the formula
+    void extract_nums(expr_ref fml, vector<rational> &res);
 }
 

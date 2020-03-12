@@ -438,6 +438,7 @@ bool lemma_global_generalizer::core(lemma_ref &lemma) {
         } else {
             // There is enough gas to conjecture on pob
             n->set_conj_pattern(conj);
+            n->set_expand_bnd();
             n->set_may_pob_lvl(pt_cls->get_min_lvl() + 1);
             n->set_gas(pt_cls->get_pob_gas());
             pt_cls->dec_gas();
@@ -463,6 +464,8 @@ bool lemma_global_generalizer::core(lemma_ref &lemma) {
                              << "\n";);
         pt_cls->dec_gas();
         if (pt_cls->get_gas() == 0) { m_st.m_num_cls_ofg++; }
+        //expand bnd if there is enough gas in the cluster
+        else {pob->set_expand_bnd();}
     }
     return false;
 }

@@ -68,7 +68,8 @@ pob::pob(pob *parent, pred_transformer &pt, unsigned level, unsigned depth,
       m_blocked_lvl(0), m_is_conj(false),
       m_conj_pattern(m_pt.get_ast_manager()), m_local_gen(true),
       m_shd_concr(false), m_concr_pat(m_pt.get_ast_manager()),
-      m_subsume_pob(m_pt.get_ast_manager()), m_is_subsume_pob(false), m_gas(0) {
+      m_subsume_pob(m_pt.get_ast_manager()), m_is_subsume_pob(false),
+      m_expand_bnd(false), m_gas(0) {
     if (add_to_parent && m_parent) {
         m_parent->add_child(*this);
     }
@@ -2280,6 +2281,7 @@ context::context(fp_params const& params, ast_manager& m) :
     m_inductive_lvl(0),
     m_expanded_lvl(0),
     m_global_gen(nullptr),
+    m_expand_bnd_gen(nullptr),
     m_json_marshaller(this),
     m_trace_stream(nullptr) {
 
@@ -2358,6 +2360,7 @@ void context::updt_params() {
     m_pdr_bfs = m_params.spacer_gpdr_bfs();
     m_use_bg_invs = m_params.spacer_use_bg_invs();
     m_global = m_params.spacer_global();
+    m_expand_bnd = m_params.spacer_expand_bnd();
     m_conjecture = m_params.spacer_conjecture();
     m_use_sage = m_params.spacer_use_sage();
     m_concretize = m_params.spacer_concretize();
@@ -2701,6 +2704,10 @@ void context::init_lemma_generalizers()
     if (m_global) {
         m_global_gen = alloc(lemma_global_generalizer, *this);
         m_lemma_generalizers.push_back(m_global_gen);
+    }
+    if (m_expand_bnd) {
+        m_expand_bnd_gen = alloc(lemma_expand_bnd_generalizer, *this);
+        m_lemma_generalizers.push_back(m_expand_bnd_gen);
     }
     if (m_validate_lemmas) {
         m_lemma_generalizers.push_back(alloc(lemma_sanity_checker, *this));
@@ -3682,6 +3689,7 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                                  << n.post()->get_id() << "\n lemma learned "
                                  << mk_and(lemma_pob->get_cube()) << "\n";);
             if (m_global_gen != nullptr) (*m_global_gen)(lemma_pob);
+            if (m_expand_bnd_gen != nullptr) (*m_expand_bnd_gen)(lemma_pob);
         }
         DEBUG_CODE(lemma_sanity_checker sanity_checker(*this);
                    sanity_checker(lemma_pob););
@@ -4374,6 +4382,10 @@ void context::close_all_may_parents(pob_ref node) {
         to_do.pop_back();
         to_do.push_back(t->parent());
     }
+}
+void pred_transformer::extract_nums(vector<rational> &res) const {
+    spacer::extract_nums(m_init, res);
+    spacer::extract_nums(m_transition, res);
 }
 // construct a simplified version of the post
 void pob::get_simp_post(expr_ref_vector &pob_cube) {
