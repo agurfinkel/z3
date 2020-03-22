@@ -764,6 +764,8 @@ void pred_transformer::collect_statistics(statistics& st) const
                m_must_reachable_watch.get_seconds ());
     st.update("time.spacer.ctp", m_ctp_watch.get_seconds());
     st.update("time.spacer.mbp", m_mbp_watch.get_seconds());
+    // -- Max cluster size can decrease during run
+    st.update("SPACER max cluster size", m_cluster_db.get_max_cluster_size());
 }
 
 void pred_transformer::reset_statistics()
@@ -2705,10 +2707,12 @@ void context::init_lemma_generalizers()
         m_global_gen = alloc(lemma_global_generalizer, *this);
         m_lemma_generalizers.push_back(m_global_gen);
     }
+
     if (m_expand_bnd) {
         m_expand_bnd_gen = alloc(lemma_expand_bnd_generalizer, *this);
         m_lemma_generalizers.push_back(m_expand_bnd_gen);
     }
+
     if (m_validate_lemmas) {
         m_lemma_generalizers.push_back(alloc(lemma_sanity_checker, *this));
     }
@@ -3531,6 +3535,7 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
     if ((n.is_may_pob()) && n.get_gas() == 0) {
         TRACE("global", tout << "Cant prove may pob. Collapsing "
                              << mk_pp(n.post(), m) << "\n";);
+        m_stats.m_num_pob_ofg++;
         return l_undef;
     }
     // Decide whether to concretize pob
@@ -3621,7 +3626,18 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                     out.push_back (next);
                 }
             }
+            if(n.is_subsume_pob())
+                m_stats.m_num_subsume_pob_reachable++;
+            if(n.is_conj())
+                m_stats.m_num_conj_failed++;
 
+            CTRACE("global", n.is_conj(),
+                   tout << "Failed to block conjecture "
+                   << n.post()->get_id() << "\n";);
+
+            CTRACE("global", n.is_subsume_pob(),
+                   tout << "Failed to block subsume generalization "
+                        << mk_pp(n.post(), m) << "\n";);
 
             IF_VERBOSE(1, verbose_stream () << (next ? " X " : " T ")
                        << std::fixed << std::setprecision(2)
@@ -3664,7 +3680,8 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
               for (unsigned j = 0; j < cube.size(); ++j)
                   tout << mk_pp(cube[j].get(), m) << "\n";);
 
-
+        if(n.is_conj()) m_stats.m_num_conj_success++;
+        if(n.is_subsume_pob()) m_stats.m_num_subsume_pob_blckd++;
         pob_ref nref(&n);
         // -- create lemma from a pob and last unsat core
         lemma_ref lemma_pob;
@@ -3683,6 +3700,7 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
         } else {
             expr_ref_vector pob_cube(m);
             n.get_simp_post(pob_cube);
+            m_stats.m_non_local_gen++;
             lemma_pob = alloc(class lemma, pob_ref(&n), pob_cube, n.level());
             TRACE("global", tout << " stopped local gen on pob "
                                  << mk_pp(n.post(), m) << " with id "
@@ -3691,6 +3709,19 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
             if (m_global_gen != nullptr) (*m_global_gen)(lemma_pob);
             if (m_expand_bnd_gen != nullptr) (*m_expand_bnd_gen)(lemma_pob);
         }
+
+        CTRACE("global", n.is_conj(),
+               tout << " Blocked conjecture pob " << mk_pp(n.post(), m)
+                    << " using lemma " << mk_pp(lemma_pob->get_expr(), m)
+                    << " Level " << lemma_pob->level() << " id "
+                    << n.post()->get_id() << "\n";);
+
+        CTRACE("global", n.is_subsume_pob(),
+               tout << " Blocked subsume pob " << mk_pp(n.post(), m)
+                    << " using lemma " << mk_pp(lemma_pob->get_expr(), m)
+                    << " Level " << lemma_pob->level() << " id "
+                    << n.post()->get_id() << "\n";);
+
         DEBUG_CODE(lemma_sanity_checker sanity_checker(*this);
                    sanity_checker(lemma_pob););
 
@@ -3723,6 +3754,7 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                 }
             }
         }
+
         if (n.get_subsume_pob().size() > 0 && n.get_gas() > 0) {
             expr_ref c(m);
             c = mk_and(n.get_subsume_pob());
@@ -3747,6 +3779,7 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                            << mk_pp(new_pob->post(), m) << " with gas "
                            << new_pob->get_gas() << "\n";);
                 out.push_back(&(*new_pob));
+                m_stats.m_num_subsume_pobs++;
             } else
                 TRACE("global",
                       tout << "duplicate pob conjecture found. Did not "
@@ -3776,10 +3809,12 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                                      << " id is " << n.post()->get_id()
                                      << "\n into pob " << c << " id is "
                                      << f->post()->get_id() << "\n";);
+                m_stats.m_num_conj++;
             } else
                 TRACE("global", tout << "duplicate conjecture found. Did not "
                                         "add to pob_queue\n";);
         }
+
         // schedule the node to be placed back in the queue
         n.inc_level();
         out.push_back(&n);
@@ -4122,9 +4157,9 @@ void context::collect_statistics(statistics& st) const
 
     // -- number of times a pob for some predicate transformer has
     // -- been created
-    st.update("SPACER num queries", m_stats.m_num_queries);
+    st.update("SPACER queries", m_stats.m_num_queries);
     // -- number of times a reach fact was true in some model
-    st.update("SPACER num reuse reach facts", m_stats.m_num_reuse_reach);
+    st.update("SPACER reuse reach facts", m_stats.m_num_reuse_reach);
     // -- maximum level at which any query was asked
     st.update("SPACER max query lvl", m_stats.m_max_query_lvl);
     // -- maximum depth
@@ -4139,6 +4174,17 @@ void context::collect_statistics(statistics& st) const
     st.update("SPACER num lemmas", m_stats.m_num_lemmas);
     // -- number of restarts taken
     st.update("SPACER restarts", m_stats.m_num_restarts);
+    // -- number of time pob abstraction was invoked
+    st.update("SPACER conj", m_stats.m_num_conj);
+    st.update("SPACER conj success", m_stats.m_num_conj_success);
+    st.update("SPACER conj failed",
+              m_stats.m_num_conj_failed);
+    st.update("SPACER pob out of gas", m_stats.m_num_pob_ofg);
+    st.update("SPACER subsume pob", m_stats.m_num_subsume_pobs);
+    st.update("SPACER subsume success", m_stats.m_num_subsume_pob_reachable);
+    st.update("SPACER subsume failed", m_stats.m_num_subsume_pob_blckd);
+    st.update("SPACER concretize", m_stats.m_num_concretize);
+    st.update("SPACER non local gen", m_stats.m_non_local_gen);
 
     // -- time to initialize the rules
     st.update ("time.spacer.init_rules", m_init_rules_watch.get_seconds ());

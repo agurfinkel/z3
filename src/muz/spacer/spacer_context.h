@@ -1158,7 +1158,15 @@ class context {
         unsigned m_num_restarts;
         unsigned m_num_lemmas_imported;
         unsigned m_num_lemmas_discarded;
+        unsigned m_num_conj;
+        unsigned m_num_conj_success;
+        unsigned m_num_conj_failed;
+        unsigned m_num_subsume_pobs;
+        unsigned m_num_subsume_pob_reachable;
+        unsigned m_num_subsume_pob_blckd;
         unsigned m_num_concretize;
+        unsigned m_num_pob_ofg;
+        unsigned m_non_local_gen;
         stats() { reset(); }
         void reset() { memset(this, 0, sizeof(*this)); }
     };
@@ -1228,7 +1236,7 @@ class context {
     bool                 m_pdr_bfs;
     bool                 m_use_bg_invs;
     bool                 m_global;
-    bool m_expand_bnd;
+    bool                 m_expand_bnd;
     bool                 m_conjecture;
     bool                 m_use_sage;
     bool                 m_concretize;
