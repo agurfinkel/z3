@@ -68,7 +68,7 @@ pob::pob(pob *parent, pred_transformer &pt, unsigned level, unsigned depth,
       m_blocked_lvl(0), m_is_conj(false),
       m_conj_pattern(m_pt.get_ast_manager()), m_local_gen(true),
       m_shd_concr(false), m_concr_pat(m_pt.get_ast_manager()),
-      m_subsume_pob(m_pt.get_ast_manager()), m_is_subsume_pob(false),
+      m_subsume_pob(m_pt.get_ast_manager()), m_subsume_bindings(m_pt.get_ast_manager()), m_is_subsume_pob(false),
       m_expand_bnd(false), m_gas(0) {
     if (add_to_parent && m_parent) {
         m_parent->add_child(*this);
@@ -3763,9 +3763,8 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
             // skip if a similar pob is already in the queue
             if (!f || !f->is_in_queue()) {
                 // create pob conjecture at the desired depth
-                app_ref_vector empty_binding(m);
                 pob *new_pob = n.pt().mk_pob(&get_root(), level, n.depth(), c,
-                                             empty_binding);
+                                             n.get_subsume_bindings());
                 // since the level of pob is going to be incremented, new pob
                 // will have higher priority
                 new_pob->set_subsume_pob();

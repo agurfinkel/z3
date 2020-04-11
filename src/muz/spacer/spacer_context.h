@@ -830,6 +830,10 @@ class pob {
 
     // a pob that subsumes all lemmas that block this pob
     expr_ref_vector m_subsume_pob;
+
+    // bindings for subsume pob
+    app_ref_vector m_subsume_bindings;
+
     // level at which may pob is to be added
     unsigned m_may_lvl;
 
@@ -856,9 +860,14 @@ class pob {
         m_subsume_pob.reset();
         m_subsume_pob.append(expr);
     }
+    void set_subsume_bindings(app_ref_vector& vars) {
+        m_subsume_bindings.reset();
+        m_subsume_bindings.append(vars);
+    }
     void set_may_pob_lvl(unsigned l) { m_may_lvl = l; }
     unsigned get_may_pob_lvl() { return m_may_lvl; }
     expr_ref_vector const &get_subsume_pob() const { return m_subsume_pob; }
+    app_ref_vector const &get_subsume_bindings() const { return m_subsume_bindings; }
     unsigned weakness() {return m_weakness;}
     void bump_weakness() {m_weakness++;}
     void reset_weakness() {m_weakness=0;}

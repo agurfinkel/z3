@@ -254,12 +254,14 @@ bool normalize_to_le(expr *lit, expr_ref &t, expr_ref &c) {
 }
 void mul_and_simp(expr_ref &fml, rational num) {
     ast_manager &m = fml.get_manager();
+    array_util m_array(m);
     arith_util m_arith(m);
+    TRACE("global", tout << fml << "\n";);
     SASSERT(m_arith.is_arith_expr(fml) || is_var(fml) ||
-            is_uninterp_const(fml));
+            is_uninterp_const(fml) || m_array.is_select(fml));
     if (num.is_one()) return;
 
-    if (is_uninterp_const(fml) || is_var(fml)) {
+    if (is_uninterp_const(fml) || is_var(fml) || m_array.is_select(fml)) {
         fml = m_arith.mk_mul(m_arith.mk_numeral(num, num.is_int()), fml);
         return;
     }
