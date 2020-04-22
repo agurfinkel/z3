@@ -28,6 +28,7 @@ Revision History:
 #include "ast/scoped_proof.h"
 #include "qe/qe_mbp.h"
 #include "qe/qe_arith.h"
+#include "qe/qe_bv_arith.h"
 #include "qe/qe_arrays.h"
 #include "qe/qe_datatypes.h"
 #include "qe/qe_lite.h"
@@ -220,8 +221,9 @@ class mbp::impl {
                 if (!m.is_true(val) && !m.is_false(val) && contains_uninterpreted(val)) {
                     throw default_exception("could not evaluate Boolean in model");
                 }
-                SASSERT(m.is_true(val) || m.is_false(val));
 
+                //skip bools that are not prime implicants.
+                if (!m.is_true(val) && !m.is_false(val)) continue;
                 if (!m_bool_visited.is_marked(e)) {
                     fmls.push_back(m.is_true(val) ? e : mk_not(m, e));
                 }
@@ -239,6 +241,8 @@ class mbp::impl {
         if (found_bool) {
             expr_ref tmp(m);
             sub(fml, tmp);
+            th_rewriter tmp_rw(m);
+            tmp_rw(tmp);
             expr_ref val = eval(tmp);
             if (!m.is_true(val) && !m.is_false(val))
                 return false;
@@ -495,6 +499,7 @@ public:
 
     impl(ast_manager& m, params_ref const& p):m(m), m_params(p), m_rw(m) {
         add_plugin(alloc(arith_project_plugin, m));
+        add_plugin(alloc(bv_project_plugin, m));
         add_plugin(alloc(datatype_project_plugin, m));
         add_plugin(alloc(array_project_plugin, m));
         updt_params(p);
