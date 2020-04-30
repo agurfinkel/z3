@@ -13,6 +13,7 @@ class lemma_cluster_finder {
     };
     ast_manager &m;
     arith_util m_arith;
+    bv_util m_bv;
     typedef std::pair<unsigned, unsigned> var_offset;
     bool is_intrp_diff(expr_ref antiU_result, substitution &s1,
                        substitution &s2);

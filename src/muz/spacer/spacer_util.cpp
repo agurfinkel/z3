@@ -1017,16 +1017,22 @@ namespace {
     struct found {};
     struct proc {
         arith_util m_arith;
-        proc(ast_manager &m) : m_arith(m) {}
+        bv_util m_bv;
+        proc(ast_manager &m) : m_arith(m), m_bv(m) {}
         bool is_numeral(expr *e) const {
             // XXX possibly handle cases where e simplifies to a numeral
-            return m_arith.is_numeral(e);
+            return m_arith.is_numeral(e) || m_bv.is_numeral(e);
+        }
+        bool is_mul(const expr* n, expr* &e1, expr* &e2) const {
+            if (m_arith.is_mul(n, e1, e2)) return true;
+            if (m_bv.is_bv_mul(n, e1, e2)) return true;
+            return false;
         }
         void operator()(var *n) const {}
         void operator()(quantifier *q) const {}
         void operator()(app const *n) const {
             expr *e1, *e2;
-            if (m_arith.is_mul(n, e1, e2) && ((is_var(e1) && !is_numeral(e2)) ||
+            if (is_mul(to_expr(n), e1, e2) && ((is_var(e1) && !is_numeral(e2)) ||
                                               (is_var(e2) && !is_numeral(e1))))
                 throw found();
         }

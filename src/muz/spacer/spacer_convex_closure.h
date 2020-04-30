@@ -11,6 +11,9 @@ namespace spacer {
 class convex_closure {
     ast_manager &m;
     arith_util m_arith;
+    bv_util m_bv;
+    unsigned m_bv_sz;
+    bool m_is_arith;
     unsigned m_dim;
     spacer_matrix m_data;
     bool is_int_points() const;
@@ -53,9 +56,10 @@ class convex_closure {
     // lowest value such that m_lcm*m_data is an integer matrix
     rational m_lcm;
 
+    expr* mk_ineq(expr_ref var, rational bnd, bool is_le);
   public:
     convex_closure(ast_manager &man, bool use_sage)
-        : m(man), m_arith(m), m_dim(0), m_data(0, 0), m_dim_vars(m),
+        : m(man), m_arith(m), m_bv(m), m_bv_sz(0), m_is_arith(true), m_dim(0), m_data(0, 0), m_dim_vars(m),
           m_nw_vars(m) {
         if (use_sage)
             m_kernel = new Sage_kernel(m_data);
@@ -70,6 +74,14 @@ class convex_closure {
         m_dim = n_cols;
         m_dim_vars.reserve(m_dim);
         m_nw_vars.reset();
+        m_bv_sz = 0;
+    }
+
+    /// turn on bv mod. set bv size
+    void set_bv(unsigned sz) {
+        SASSERT(sz > 0);
+        m_is_arith = false;
+        m_bv_sz = sz;
     }
     /// Incremental interface
 

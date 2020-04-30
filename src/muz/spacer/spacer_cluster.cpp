@@ -23,7 +23,7 @@
 using namespace spacer;
 namespace spacer {
 lemma_cluster_finder::lemma_cluster_finder(ast_manager &am)
-    : m(am), m_arith(m) {}
+    : m(am), m_arith(m), m_bv(m) {}
 
 // returns whether formulas differ only in interpreted constants
 bool lemma_cluster_finder::is_intrp_diff(expr_ref antiU_result,
@@ -35,9 +35,11 @@ bool lemma_cluster_finder::is_intrp_diff(expr_ref antiU_result,
     for (unsigned j = 0, sz = s1.get_num_bindings(); j < sz; j++) {
         s1.get_binding(j, v1, r1);
         s2.get_binding(j, v2, r2);
-        if (!(m_arith.is_numeral(r1.get_expr()) &&
-              m_arith.is_numeral(r2.get_expr())))
-            return false;
+        if (!((m_arith.is_numeral(r1.get_expr()) &&
+               m_arith.is_numeral(r2.get_expr())) ||
+              ((m_bv.is_numeral(r1.get_expr()) &&
+                m_bv.is_numeral(r2.get_expr())))))
+          return false;
     }
     return true;
 }
@@ -240,11 +242,12 @@ bool lemma_cluster ::match(const expr_ref &e, substitution &sub) {
     std::pair<unsigned, unsigned> var;
     expr_offset r;
     arith_util a_util(m);
+    bv_util bv(m);
     if (!(is_match && pos)) return false;
     // All the matches should be numerals
     for (unsigned i = 0; i < n_binds; i++) {
         sub.get_binding(i, var, r);
-        if (!a_util.is_numeral(r.get_expr())) return false;
+        if (!(a_util.is_numeral(r.get_expr()) || bv.is_numeral(r.get_expr()))) return false;
     }
     return true;
 }

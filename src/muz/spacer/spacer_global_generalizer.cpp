@@ -56,12 +56,40 @@ app *mk_frsh_const(ast_manager &m, unsigned idx, sort *s) {
   name << "gspcVar!" << idx;
   return m.mk_const(symbol(name.str().c_str()), s);
 }
+
+bool contains_bv(ast_manager &m, const substitution &sub, unsigned &sz) {
+  bv_util m_bv(m);
+  std::pair<unsigned, unsigned> v;
+  expr_offset r;
+  for (unsigned j = 0; j < sub.get_num_bindings(); j++) {
+    sub.get_binding(j, v, r);
+    rational offset;
+    if (m_bv.is_numeral(r.get_expr(), offset, sz))
+      return true;
+  }
+  return false;
+}
+
+bool all_same_sz(ast_manager &m, const substitution &sub, unsigned sz) {
+  bv_util m_bv(m);
+  std::pair<unsigned, unsigned> v;
+  expr_offset r;
+  for (unsigned j = 0; j < sub.get_num_bindings(); j++) {
+    sub.get_binding(j, v, r);
+    rational offset;
+    if (!(m_bv.is_numeral(r.get_expr(), offset) &&
+          m_bv.get_bv_size(r.get_expr()) == sz))
+      return false;
+  }
+  return true;
+}
 } // namespace
 namespace spacer {
 lemma_global_generalizer::lemma_global_generalizer(context &ctx)
     : lemma_generalizer(ctx), m(ctx.get_ast_manager()), m_arith(m), m_array(m),
-      m_cvx_cls(m, ctx.use_sage()), m_dim_frsh_cnsts(m), m_dim_vars(m) {
-    m_solver = mk_smt_solver(m, params_ref::get_empty(), symbol::null);
+      m_bv(m), m_cvx_cls(m, ctx.use_sage()), m_dim_frsh_cnsts(m),
+      m_dim_vars(m) {
+  m_solver = mk_smt_solver(m, params_ref::get_empty(), symbol::null);
 }
 
 void lemma_global_generalizer::operator()(lemma_ref &lemma) {
@@ -248,7 +276,9 @@ void lemma_global_generalizer::add_int_points(const lemma_cluster &lc) {
         for (unsigned j = 0; j < n_vars; j++) {
             sub.get_binding(j, v, r);
             rational offset;
-            m_arith.is_numeral(r.get_expr(), offset);
+            if (!m_arith.is_numeral(r.get_expr(), offset)) {
+              m_bv.is_numeral(r.get_expr(), offset);
+            }
             m_lcm = lcm(m_lcm, denominator(abs(offset)));
         }
     }
@@ -260,7 +290,9 @@ void lemma_global_generalizer::add_int_points(const lemma_cluster &lc) {
         for (unsigned j = 0; j < n_vars; j++) {
             sub.get_binding(j, v, r);
             rational offset;
-            m_arith.is_numeral(r.get_expr(), offset);
+            if (!m_arith.is_numeral(r.get_expr(), offset)) {
+              m_bv.is_numeral(r.get_expr(), offset);
+            }
             point.push_back(m_lcm * offset);
         }
         m_cvx_cls.push_back(point);
@@ -309,11 +341,21 @@ bool lemma_global_generalizer::subsume(lemma_cluster lc, lemma_ref &lemma,
     unsigned n_vars = get_num_vars(pattern);
     SASSERT(n_vars > 0);
     reset(n_vars);
+
+    unsigned sz = 0;
+    bool bv_clus = contains_bv(m, lc.get_lemmas()[0].get_sub(), sz);
+    if (bv_clus) {
+        if (!all_same_sz(m, lc.get_lemmas()[0].get_sub(), sz)) {
+            TRACE("global", tout
+                  << "cannot compute cvx cls of different size variables\n";);
+            return false;
+        }
+        m_cvx_cls.set_bv(sz);
+    }
     // create and add dim vars
     add_dim_vars(lc);
     // add points
     add_int_points(lc);
-
     expr_ref_vector cls(m);
     m_syn_cvx_cls = m_cvx_cls.closure(cls);
     CTRACE("subsume_verb", !m_syn_cvx_cls,
@@ -321,6 +363,8 @@ bool lemma_global_generalizer::subsume(lemma_cluster lc, lemma_ref &lemma,
                 << mk_and(cls) << "\n";);
 
     if (!m_syn_cvx_cls) {
+        // For now, no syntactic convex closure for bv
+        if (bv_clus) return false;
         m_st.m_num_syn_cls++;
         // Add the new variables to the list of variables to be eliminated
         const var_ref_vector &vars = m_cvx_cls.get_nw_vars();

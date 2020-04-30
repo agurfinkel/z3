@@ -74,8 +74,10 @@ void convex_closure::rewrite_lin_deps() {
                     if (j != row.size() - 1)
                         mul_if_not_one(-1 * val * m_lcm, m_dim_vars[j].get(),
                                        prod);
-                    else
+                    else if (m_is_arith)
                         prod = m_arith.mk_int(-1 * val);
+                    else
+                        prod = m_bv.mk_numeral(-1*val, m_bv_sz);
                     rw.push_back(prod);
                 }
             }
@@ -85,13 +87,16 @@ void convex_closure::rewrite_lin_deps() {
         SASSERT(pv != -1);
 
         if (rw.size() == 0) {
-            temp[pv] = m_arith.mk_eq(m_dim_vars[pv].get(),
+            if (m_is_arith)
+                temp[pv] = m_arith.mk_eq(m_dim_vars[pv].get(),
                                      m_arith.mk_int(rational::zero()));
+            else
+                temp[pv] = m.mk_eq(m_dim_vars[pv].get(), m_bv.mk_numeral(rational::zero(), m_bv_sz));
             continue;
         }
 
         expr_ref rw_term(m);
-        rw_term = m_arith.mk_add(rw.size(), rw.c_ptr());
+        rw_term = m_is_arith ? m_arith.mk_add(rw.size(), rw.c_ptr()):  m.mk_app(m_bv.get_fid(), OP_BADD, rw.size(), rw.c_ptr());
         expr_ref pv_var(m);
         mul_if_not_one(coeff * m_lcm, m_dim_vars[pv].get(), pv_var);
 
@@ -127,8 +132,11 @@ void convex_closure::add_sum_cnstr(unsigned i, expr_ref_vector &res_vec) {
         add.push_back(mul);
     }
     mul_if_not_one(m_lcm, m_dim_vars[i].get(), result_var);
-    res_vec.push_back(
-        m.mk_eq(m_arith.mk_add(add.size(), add.c_ptr()), result_var));
+    if (m_is_arith)
+        res_vec.push_back(
+            m.mk_eq(m_arith.mk_add(add.size(), add.c_ptr()), result_var));
+    else
+        res_vec.push_back(m.mk_eq(m.mk_app(m_bv.get_fid(), OP_BADD, add.size(), add.c_ptr()), result_var));
 }
 
 void convex_closure::syn_cls(expr_ref_vector &res_vec) {
@@ -219,7 +227,7 @@ bool convex_closure::closure(expr_ref_vector &res_vec) {
     if (red_dim > 1) {
         SASSERT(m_nw_vars.size() == 0);
         TRACE("subsume", tout << "Computing syntactic convex closure\n";);
-        syn_cls(res_vec);
+        // syn_cls(res_vec);
         return false;
     }
 
@@ -231,6 +239,17 @@ bool convex_closure::closure(expr_ref_vector &res_vec) {
     return true;
 }
 
+expr* convex_closure::mk_ineq(expr_ref result_var, rational bnd, bool is_le) {
+    if (m_is_arith) {
+        if (is_le)
+            return m_arith.mk_le(result_var, m_arith.mk_int(bnd));
+        return m_arith.mk_ge(result_var, m_arith.mk_int(bnd));
+    }
+    //TODO figure out whether we need signed versions or unsigned versions.
+    if (is_le)
+        return m_bv.mk_ule(result_var, m_bv.mk_numeral(bnd, m_bv_sz));
+    return m_bv.mk_ule(m_bv.mk_numeral(bnd, m_bv_sz), result_var);
+}
 void convex_closure::do_one_dim_cls(expr_ref var, expr_ref_vector &res_vec) {
     // The convex closure over one dimension is just a bound
     vector<rational> data;
@@ -241,15 +260,15 @@ void convex_closure::do_one_dim_cls(expr_ref var, expr_ref_vector &res_vec) {
 
     expr_ref ub_expr(m), lb_expr(m), result_var(m);
     mul_if_not_one(m_lcm, var, result_var);
-    ub_expr = m_arith.mk_le(result_var, m_arith.mk_int(data[0]));
-    lb_expr = m_arith.mk_ge(result_var, m_arith.mk_int(data[data.size() - 1]));
+    ub_expr = mk_ineq(result_var, data[0], true);
+    lb_expr = mk_ineq(result_var, data[data.size() - 1], false);
 
     rational cr, off;
     expr_ref v(m);
-    // add dim constraints for all variables.
+    // add div constraints for all variables.
     for (unsigned j = 0; j < m_data.num_cols(); j++) {
         v = m_dim_vars.get(j);
-        if (is_var(v) && m_arith.is_int(v)) {
+        if (is_var(v) && (m_arith.is_int(v) || m_bv.is_bv(v))) {
             data.reset();
             m_data.get_col(j, data);
             std::sort(data.begin(), data.end(),
@@ -258,9 +277,12 @@ void convex_closure::do_one_dim_cls(expr_ref var, expr_ref_vector &res_vec) {
                       });
             if (compute_div_constraint(data, cr, off)) {
                 mul_if_not_one(m_lcm, v, result_var);
-                res_vec.push_back(m_arith.mk_eq(
-                    m_arith.mk_mod(result_var, m_arith.mk_int(cr)),
-                    m_arith.mk_int(off)));
+                if (m_is_arith)
+                    res_vec.push_back(m_arith.mk_eq(
+                                          m_arith.mk_mod(result_var, m_arith.mk_int(cr)),
+                                          m_arith.mk_int(off)));
+                else
+                    res_vec.push_back(m.mk_eq(m_bv.mk_bv_urem(result_var, m_bv.mk_numeral(cr, m_bv_sz)), m_bv.mk_numeral(off, m_bv_sz)));
             }
         }
     }

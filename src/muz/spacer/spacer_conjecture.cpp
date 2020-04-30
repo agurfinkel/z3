@@ -28,8 +28,9 @@ namespace spacer {
 
 bool is_mono_var(expr *pattern, ast_manager &m, arith_util &a_util) {
     expr *e;
+    bv_util bv(m);
     if (m.is_not(pattern, e)) return is_mono_var(e, m, a_util);
-    if (a_util.is_arith_expr(to_app(pattern))) {
+    if (a_util.is_arith_expr(to_app(pattern)) || bv.is_bv_ule(pattern) || bv.is_bv_sle(pattern)) {
         return get_num_vars(pattern) == 1 && !has_nonlinear_var_mul(pattern, m);
     }
     return false;
