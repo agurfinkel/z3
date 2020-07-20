@@ -164,12 +164,12 @@ public:
                 // skip (asserted m_aux)
                 else if (m.is_asserted(arg, a) && a == m_aux.get()) {
                     dirty = true;
-                    args.push_back(m.mk_true_proof());
+                    args.push_back(arg);
                 }
                 // skip (hypothesis m_aux)
                 else if (m.is_hypothesis(arg, a) && a == m_aux.get()) {
                     dirty = true;
-                    args.push_back(m.mk_true_proof());
+                    args.push_back(arg);
                 } else if (is_app(arg) && cache.find(to_app(arg), r)) {
                     dirty |= (arg != r);
                     args.push_back(r);
@@ -193,8 +193,9 @@ public:
                 ptr_buffer<proof> parents;
                 for (unsigned i = 0, sz = args.size() - 1; i < sz; ++i) {
                     app *arg = to_app(args.get(i));
-                    if (!m.is_true(m.get_fact(arg)))
-                        parents.push_back(arg);
+                    if (m.is_asserted(arg, a) && a == m_aux.get()) {}
+                    else if (m.is_hypothesis(arg, a) && a == m_aux.get()) {}
+                    else parents.push_back(arg);
                 }
                 // unit resolution that collapsed to nothing
                 if (parents.size() == 1) {
