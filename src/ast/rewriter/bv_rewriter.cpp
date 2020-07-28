@@ -2278,6 +2278,10 @@ br_status bv_rewriter::mk_bit2bool(expr * n, int idx, expr_ref & result) {
         return BR_FAILED;
     if (idx < 0 || idx >= static_cast<int>(sz)) 
         return BR_FAILED;
+    if (sz <= 64) {
+      result = m().mk_bool_val(v.get_uint64() >> idx & 1);
+      return BR_DONE;
+    }
     div(v, rational::power_of_two(idx), bit);
     mod(bit, rational(2), bit);
     result = m().mk_bool_val(bit.is_one());
