@@ -2650,6 +2650,11 @@ void context::init_lemma_generalizers()
 {
     reset_lemma_generalizers();
 
+    if (m_use_lim_num_gen) {
+      // first, to get small numbers before any other smt calls
+      m_lemma_generalizers.push_back(alloc(limit_num_generalizer, *this, 5));
+    }
+
     if (m_q3_qgen) {
         m_lemma_generalizers.push_back(alloc(lemma_bool_inductive_generalizer,
                                              *this, 0, true));
