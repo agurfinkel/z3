@@ -556,30 +556,25 @@ namespace spacer {
                 if (m_ctx.is_b(current))
                 {
                     // if we trust the current step and we are able to use it
-                    if (m_ctx.is_b_pure (current) &&
+                    if (m_ctx.is_b_pure(current) &&
                         (m.is_asserted(current) ||
-                         spacer::is_literal(m, m.get_fact(current))))
-                    {
-                        // we found a leaf of the subproof, so
-                        // 1) we add corresponding edges
-                        if (m_ctx.is_a(step))
-                        {
-                            add_edge(nullptr, current); // current is sink
-                        }
-                        else
-                        {
-                            add_edge(step, current); // standard edge
-                        }
-                        // 2) add the leaf to todo
-                        todo.push_back(current);
-                        is_sink = false;
+                         spacer::is_literal(m, m.get_fact(current)))) {
+                      // we found a leaf of the subproof, so
+                      // 1) we add corresponding edges
+                      if (m_ctx.is_a(step)) {
+                        add_edge(nullptr, current); // current is sink
+                      } else {
+                        add_edge(step, current); // standard edge
+                      }
+                      // 2) add the leaf to todo
+                      todo.push_back(current);
+                      is_sink = false;
                     }
                     // otherwise continue search for leaves of subproof
-                    else
-                    {
-                        for (proof* premise : m.get_parents(current)) {
-                            todo_subproof.push_back(premise);
-                        }
+                    else {
+                      for (proof *premise : m.get_parents(current)) {
+                        todo_subproof.push_back(premise);
+                      }
                     }
                 }
             }
