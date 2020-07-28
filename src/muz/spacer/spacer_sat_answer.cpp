@@ -69,6 +69,7 @@ proof_ref ground_sat_answer_op::operator()(pred_transformer &query) {
         SASSERT(res == l_true);
         model_ref mdl;
         m_solver->get_model(mdl);
+        mdl->compress();
         model::scoped_model_completion _scm(mdl, true);
         for (unsigned i = 0, sz = query.sig_size(); i < sz; ++i) {
             expr_ref arg(m), val(m);
@@ -105,7 +106,12 @@ proof_ref ground_sat_answer_op::operator()(pred_transformer &query) {
     }
 
     m_solver.reset();
-    return proof_ref(m_cache.find(root_fact), m);
+
+    // turn proof of root fact into a refutation
+    proof_ref pf1(m_cache.find(root_fact), m);
+    proof_ref pf2(m.mk_asserted(m.mk_implies(m.get_fact(pf1), m.mk_false())), m);
+    pf1 = m.mk_modus_ponens(pf1, pf2);
+    return pf1;
 }
 
 
@@ -139,6 +145,7 @@ void ground_sat_answer_op::mk_children(frame &fr, vector<frame> &todo) {
 
     model_ref mdl;
     m_solver->get_model(mdl);
+    mdl->compress();
     expr_ref_vector subst(m);
     for (unsigned i = 0, sz = preds.size(); i < sz; ++i) {
         subst.reset();

@@ -27,14 +27,16 @@ Notes:
 #undef min
 #undef max
 #endif
-#include <queue>
-#include "util/scoped_ptr_vector.h"
+#include "muz/spacer/spacer_json.h"
 #include "muz/spacer/spacer_manager.h"
 #include "muz/spacer/spacer_prop_solver.h"
-#include "muz/spacer/spacer_json.h"
+#include "muz/spacer/spacer_sem_matcher.h"
+#include "util/scoped_ptr_vector.h"
+#include <queue>
 
 #include "muz/base/fp_params.hpp"
 
+#define GAS_INIT 10
 namespace datalog {
     class rule_set;
     class context;
@@ -48,6 +50,7 @@ class pred_transformer;
 class derivation;
 class pob_queue;
 class context;
+class lemma_cluster_finder;
 
 typedef obj_map<datalog::rule const, app_ref_vector*> rule2inst;
 typedef obj_map<func_decl, pred_transformer*> decl2rel;
@@ -197,7 +200,99 @@ struct lemma_lt_proc : public std::binary_function<lemma*, lemma *, bool> {
     }
 };
 
+class lemma_info {
+    lemma_ref m_lemma;
+    substitution m_sub;
 
+  public:
+    lemma_info(const lemma_ref &l, const substitution &sub)
+        : m_lemma(l), m_sub(sub) {}
+    const lemma_ref &get_lemma() const { return m_lemma; }
+    const substitution &get_sub() const { return m_sub; }
+};
+typedef vector<lemma_info, true> lemma_info_vector;
+//
+// a cluster of lemmas
+// a pattern and lemmas that match the pattern
+class lemma_cluster {
+    unsigned m_ref_count;
+    expr_ref m_pattern;
+    lemma_info_vector m_lemma_vec;
+    ast_manager &m;
+    sem_matcher m_matcher;
+    // removes subsumptions and returns a list of removed lemmas
+    void rm_subsumed(lemma_info_vector &removed_lemmas);
+    // checks whether e matches pattern.
+    // If so, returns the substitution that gets e from pattern
+    bool match(const expr_ref &e, substitution &sub);
+    // The number of times CSM has to be tried using this cluster
+    unsigned m_gas;
+
+  public:
+    lemma_cluster(const expr_ref &pattern)
+        : m_ref_count(0), m_pattern(pattern), m(pattern.get_manager()),
+          m_matcher(m), m_gas(GAS_INIT) {}
+
+    const lemma_info_vector &get_lemmas() const { return m_lemma_vec; }
+
+    lemma_cluster(lemma_cluster &lc)
+        : m_ref_count(0), m_pattern(lc.get_pattern()),
+          m(m_pattern.get_manager()), m_matcher(m), m_gas(lc.get_gas()) {
+        for (const lemma_info &l : lc.get_lemmas()) {
+            m_lemma_vec.push_back(l);
+        }
+    }
+
+    // WARNING: Adding a lemma can reduce the size of the cluster due to
+    // subsumption check
+    bool add_lemma(const lemma_ref &lemma, bool subs_check = false);
+
+    bool contains(const lemma_ref &lemma) {
+        for (const lemma_info &l : m_lemma_vec) {
+            if (lemma->get_expr() == l.get_lemma()->get_expr()) return true;
+        }
+        return false;
+    }
+
+    void dec_gas() {
+        if (m_gas > 0) m_gas--;
+    }
+    unsigned get_gas() const { return m_gas; }
+    unsigned get_pob_gas() const { return 5 * m_lemma_vec.size(); }
+    unsigned get_min_lvl() {
+        // not really the lowest. In case of duplicate lemmas, we remove one
+        // arbitrarily.
+        unsigned min_lvl = m_lemma_vec[0].get_lemma()->level();
+        for (auto l : m_lemma_vec) {
+            min_lvl = std::min(min_lvl, l.get_lemma()->level());
+        }
+        return min_lvl;
+    }
+    bool can_contain(const lemma_ref &lemma) {
+        substitution sub(m);
+        sub.reserve(1, get_num_vars(m_pattern.get()));
+        expr_ref cube(m);
+        cube = mk_and(lemma->get_cube());
+        normalize_order(cube, cube);
+        return match(cube, sub);
+    }
+
+    lemma_info *get_lemma_info(const lemma_ref &lemma) {
+        SASSERT(contains(lemma));
+        for (lemma_info &l : m_lemma_vec) {
+            if (lemma == l.get_lemma()) { return &l; }
+        }
+        UNREACHABLE();
+        return nullptr;
+    }
+    unsigned get_size() const { return m_lemma_vec.size(); }
+    const expr_ref &get_pattern() const { return m_pattern; }
+    void inc_ref() { ++m_ref_count; }
+    void dec_ref() {
+        --m_ref_count;
+        if (m_ref_count == 0) { dealloc(this); }
+    }
+};
 
 //
 // Predicate transformer state.
@@ -264,6 +359,13 @@ class pred_transformer {
             }
         }
 
+        void get_frame_all_lemmas(lemma_ref_vector &out,
+                                  bool with_bg = false) const {
+            for (auto &lemma : m_lemmas) { out.push_back(lemma); }
+            if (with_bg) {
+                for (auto &lemma : m_bg_invs) out.push_back(lemma);
+            }
+        }
         const lemma_ref_vector& get_bg_invs() const {return m_bg_invs;}
         unsigned size() const {return m_size;}
         unsigned lemma_size() const {return m_lemmas.size ();}
@@ -381,7 +483,59 @@ class pred_transformer {
         bool empty() {return m_rules.empty();}
         iterator begin() {return m_rules.begin();}
         iterator end() {return m_rules.end();}
+    };
 
+    class cluster_db {
+        sref_vector<lemma_cluster> m_clusters;
+        unsigned m_max_cluster_size;
+
+      public:
+        cluster_db() : m_max_cluster_size(0) {}
+        unsigned get_max_cluster_size() const { return m_max_cluster_size; }
+
+        bool add_to_cluster(const lemma_ref &lemma) {
+            bool found = false;
+            for (auto *c : m_clusters) {
+                if (c->add_lemma(lemma, true)) {
+                    found = true;
+                    // exiting on the first cluster to which the lemma belongs
+                    // to.
+                    break;
+                }
+            }
+            // Due to subsumption check, cluster sizes could have decreased
+            for (auto *c : m_clusters) {
+                m_max_cluster_size =
+                    std::max(m_max_cluster_size, c->get_size());
+            }
+            return found;
+        }
+
+        lemma_cluster *can_contain(const lemma_ref &lemma) {
+            for (auto *c : m_clusters) {
+                if (c->can_contain(lemma)) { return c; }
+            }
+            return nullptr;
+        }
+
+        lemma_cluster *mk_cluster(const expr_ref &pattern) {
+            m_clusters.push_back(alloc(lemma_cluster, pattern));
+            return m_clusters.back();
+        }
+
+        lemma_cluster *get_cluster(const lemma_ref &lemma) {
+            for (lemma_cluster *lc : m_clusters) {
+                if (lc->contains(lemma)) return lc;
+            }
+            return nullptr;
+        }
+
+        lemma_cluster *get_cluster(const expr *pattern) {
+            for (lemma_cluster *lc : m_clusters) {
+                if (lc->get_pattern().get() == pattern) return lc;
+            }
+            return nullptr;
+        }
     };
 
     manager&                     pm;                // spacer::manager
@@ -411,6 +565,8 @@ class pred_transformer {
     stopwatch                    m_must_reachable_watch;
     stopwatch                    m_ctp_watch;
     stopwatch                    m_mbp_watch;
+    cluster_db m_cluster_db;
+    bool                         m_has_quantified_frame; // True when a quantified lemma is in the frame
 
     void init_sig();
     app_ref mk_extend_lit();
@@ -443,6 +599,7 @@ public:
     ~pred_transformer() {}
 
     inline bool use_native_mbp ();
+    bool mk_mdl_rf_consistent(const datalog::rule *r, model &mdl);
     reach_fact *get_rf (expr *v) {
         for (auto *rf : m_reach_facts) {
             if (v == rf->get()) {return rf;}
@@ -482,6 +639,9 @@ public:
     reach_fact *get_used_rf(model& mdl, bool all = true);
     /// \brief Returns reachability fact active in the origin of the given model
     reach_fact* get_used_origin_rf(model &mdl, unsigned oidx);
+    /// \brief Collects all the reachable facts used in mdl
+    void get_all_used_rf(model &mdl, unsigned oidx, reach_fact_ref_vector& res);
+    void get_all_used_rf(model &mdl, reach_fact_ref_vector &res);
     expr_ref get_origin_summary(model &mdl,
                                 unsigned level, unsigned oidx, bool must,
                                 const ptr_vector<app> **aux);
@@ -529,11 +689,12 @@ public:
         return m_pobs.mk_pob(parent, level, depth, post);
     }
 
-    lbool is_reachable(pob& n, expr_ref_vector* core, model_ref *model,
-                       unsigned& uses_level, bool& is_concrete,
-                       datalog::rule const*& r,
-                       vector<bool>& reach_pred_used,
-                       unsigned& num_reuse_reach);
+    // extract all the numerals appearing in the init and transition relations
+    void extract_nums(vector<rational> &res) const;
+    lbool is_reachable(pob &n, expr_ref_vector *core, model_ref *model,
+                       unsigned &uses_level, bool &is_concrete,
+                       datalog::rule const *&r, vector<bool> &reach_pred_used,
+                       unsigned &num_reuse_reach, bool use_iuc = true);
     bool is_invariant(unsigned level, lemma* lem,
                       unsigned& solver_level,
                       expr_ref_vector* core = nullptr);
@@ -566,7 +727,7 @@ public:
     app* extend_initial (expr *e);
 
     /// \brief Returns true if the obligation is already blocked by current lemmas
-    bool is_blocked (pob &n, unsigned &uses_level);
+    bool is_blocked(pob &n, unsigned &uses_level, model_ref *model);
     /// \brief Returns true if the obligation is already blocked by current quantified lemmas
     bool is_qblocked (pob &n);
 
@@ -579,10 +740,35 @@ public:
     void updt_solver_with_lemmas(prop_solver *solver,
                                  const pred_transformer &pt,
                                  app *rule_tag, unsigned pos);
+    // exposing ACTIVE lemmas (alternatively, one can expose `m_pinned_lemmas`
+    // for ALL lemmas)
+    void get_all_lemmas(lemma_ref_vector &out, bool with_bg = false) const {
+        m_frames.get_frame_all_lemmas(out, with_bg);
+    }
     void update_solver_with_rfs(prop_solver *solver,
                               const pred_transformer &pt,
                               app *rule_tag, unsigned pos);
 
+    lemma_cluster *mk_cluster(const expr_ref &pattern) {
+        return m_cluster_db.mk_cluster(pattern);
+    }
+
+    bool add_to_cluster(const lemma_ref &lemma) {
+        return m_cluster_db.add_to_cluster(lemma);
+    }
+
+    // checks whether lemma CAN belong to any existing cluster
+    lemma_cluster *clstr_match(const lemma_ref &lemma) {
+        return m_cluster_db.can_contain(lemma);
+    }
+
+    lemma_cluster *get_cluster(const lemma_ref &lemma) {
+        return m_cluster_db.get_cluster(lemma);
+    }
+
+    lemma_cluster *get_cluster(const expr *pattern) {
+        return m_cluster_db.get_cluster(pattern);
+    }
 };
 
 
@@ -629,7 +815,38 @@ class pob {
     std::map<unsigned, stopwatch> m_expand_watches;
     unsigned m_blocked_lvl;
 
-public:
+    // true if this pob is a conjecture
+    bool m_is_conj;
+
+    // pattern with which conjecture was created
+    expr_ref_vector m_conj_pattern;
+
+    // should do local generalizations on pob
+    bool m_local_gen;
+    // should concretize cube
+    bool m_shd_concr;
+
+    // pattern identified for one of its lemmas
+    expr_ref m_concr_pat;
+
+    // a pob that subsumes all lemmas that block this pob
+    expr_ref_vector m_subsume_pob;
+
+    // bindings for subsume pob
+    app_ref_vector m_subsume_bindings;
+
+    // level at which may pob is to be added
+    unsigned m_may_lvl;
+
+    // is a subsume pob
+    bool m_is_subsume_pob;
+
+    // should apply expand bnd generalization on pob
+    bool m_expand_bnd;
+    // gas decides how much time is spent in blocking this (may) pob
+    unsigned m_gas;
+
+  public:
     pob (pob* parent, pred_transformer& pt,
          unsigned level, unsigned depth=0, bool add_to_parent=true);
 
@@ -639,6 +856,19 @@ public:
     void set_post(expr *post, app_ref_vector const &binding);
     void set_post(expr *post);
 
+    void set_subsume_pob(const expr_ref_vector &expr) {
+        m_may_lvl = 0;
+        m_subsume_pob.reset();
+        m_subsume_pob.append(expr);
+    }
+    void set_subsume_bindings(app_ref_vector& vars) {
+        m_subsume_bindings.reset();
+        m_subsume_bindings.append(vars);
+    }
+    void set_may_pob_lvl(unsigned l) { m_may_lvl = l; }
+    unsigned get_may_pob_lvl() { return m_may_lvl; }
+    expr_ref_vector const &get_subsume_pob() const { return m_subsume_pob; }
+    app_ref_vector const &get_subsume_bindings() const { return m_subsume_bindings; }
     unsigned weakness() {return m_weakness;}
     void bump_weakness() {m_weakness++;}
     void reset_weakness() {m_weakness=0;}
@@ -658,6 +888,30 @@ public:
 
     pob* parent () const { return m_parent.get (); }
 
+    bool is_conj() const { return m_is_conj; }
+    void set_conj() { m_is_conj = true; }
+
+    void stop_expand_bnd() { m_expand_bnd = false; }
+    bool expand_bnd() { return m_expand_bnd; }
+    void set_expand_bnd() { m_expand_bnd = true; }
+    void set_concr_pat(expr_ref pattern) { m_concr_pat = pattern; }
+    expr_ref get_concr_pat() const { return m_concr_pat; }
+    expr_ref_vector const &get_conj_pattern() const { return m_conj_pattern; }
+    void set_conj_pattern(expr_ref_vector &pattern) {
+        m_conj_pattern.reset();
+        m_conj_pattern.append(pattern);
+    }
+    bool is_subsume_pob() const { return m_is_subsume_pob; }
+    void set_subsume_pob() { m_is_subsume_pob = true; }
+    bool is_may_pob() const { return is_subsume_pob() || is_conj(); }
+    unsigned get_gas() const { return m_gas; }
+    void set_gas(unsigned n) { m_gas = n; }
+
+    bool do_local_gen() const { return m_local_gen; }
+    void stop_local_gen() { m_local_gen = false; }
+    void get_simp_post(expr_ref_vector &res);
+    bool should_concretize() const { return m_shd_concr && m_gas > 0; }
+    void set_concretize() { m_shd_concr = true; }
     pred_transformer& pt () const { return m_pt; }
     ast_manager& get_ast_manager () const { return m_pt.get_ast_manager (); }
     manager& get_manager () const { return m_pt.get_manager (); }
@@ -915,6 +1169,15 @@ class context {
         unsigned m_num_restarts;
         unsigned m_num_lemmas_imported;
         unsigned m_num_lemmas_discarded;
+        unsigned m_num_conj;
+        unsigned m_num_conj_success;
+        unsigned m_num_conj_failed;
+        unsigned m_num_subsume_pobs;
+        unsigned m_num_subsume_pob_reachable;
+        unsigned m_num_subsume_pob_blckd;
+        unsigned m_num_concretize;
+        unsigned m_num_pob_ofg;
+        unsigned m_non_local_gen;
         stats() { reset(); }
         void reset() { memset(this, 0, sizeof(*this)); }
     };
@@ -948,6 +1211,9 @@ class context {
     unsigned             m_inductive_lvl;
     unsigned             m_expanded_lvl;
     ptr_buffer<lemma_generalizer>  m_lemma_generalizers;
+    lemma_generalizer *m_global_gen;
+    lemma_generalizer *m_expand_bnd_gen;
+    lemma_cluster_finder *m_lmma_cluster;
     stats                m_stats;
     model_converter_ref  m_mc;
     proof_converter_ref  m_pc;
@@ -980,6 +1246,12 @@ class context {
     bool                 m_simplify_formulas_post;
     bool                 m_pdr_bfs;
     bool                 m_use_bg_invs;
+    bool                 m_global;
+    bool                 m_expand_bnd;
+    bool                 m_conjecture;
+    bool                 m_use_sage;
+    bool                 m_concretize;
+    bool                 m_use_iuc;
     unsigned             m_push_pob_max_depth;
     unsigned             m_max_level;
     unsigned             m_restart_initial_threshold;
@@ -1043,6 +1315,9 @@ class context {
     void predecessor_eh();
 
     void updt_params();
+    lbool handle_unknown(pob &n, const datalog::rule *r, model &model);
+    bool mk_mdl_rf_consistent(model &mdl);
+
 public:
     /**
        Initial values of predicates are stored in corresponding relations in dctx.
@@ -1125,6 +1400,9 @@ public:
 
     bool is_inductive();
 
+    bool use_sage() { return m_use_sage; }
+    // close all parents of may pob when gas runs out
+    void close_all_may_parents(pob_ref node);
 
     // three different solvers with three different sets of parameters
     // different solvers are used for different types of queries in spacer

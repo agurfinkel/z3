@@ -179,5 +179,10 @@ def_module_params('fp',
                           ('spacer.gpdr.bfs', BOOL, True, 'Use BFS exploration strategy for expanding model search'),
                           ('spacer.use_bg_invs', BOOL, False, 'Enable external background invariants'),
                           ('spacer.use_lim_num_gen', BOOL, False, 'Enable limit numbers generalizer to get smaller numbers'),
-
+	                  ('spacer.concretize', BOOL, False, 'Enable concretize rule'),                           
+                          ('spacer.conjecture', BOOL, False, 'Enable conjecturing new pobs'),
+			  ('spacer.global', BOOL, False, 'Enable global generalization of lemmas'),
+                          ('spacer.use_sage', BOOL, False, 'Enable kernel computation using Sage'),
+                          ('spacer.use_iuc', BOOL, True, 'Enable Interpolating Unsat Core(IUC) for lemma generalization'),
+                          ('spacer.expand_bnd', BOOL, False, 'Enable expand bound generalization of lemmas'),
                           ))

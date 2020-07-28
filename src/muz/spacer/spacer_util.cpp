@@ -973,7 +973,85 @@ namespace {
         for_each_expr(cd, fml);
     }
 
-}
+    unsigned get_num_vars(expr *e) {
+        expr_free_vars fv;
+        fv(e);
+        unsigned count = 0;
+        for (unsigned i = 0, sz = fv.size(); i < sz; ++i) {
+            if (fv[i]) { count++; }
+        }
+        return count;
+    }
 
+    struct collect_uninterp_consts {
+        expr_ref_vector &m_out;
+        collect_uninterp_consts(expr_ref_vector &out) : m_out(out) {}
+        void operator()(expr *n) const {}
+        void operator()(app *n) {
+            if (is_uninterp_const(n)) m_out.push_back(n);
+        }
+    };
+
+    void get_uninterp_consts(expr *e, expr_ref_vector &out) {
+        collect_uninterp_consts proc(out);
+        for_each_expr(proc, e);
+    }
+    // HG : checks whether n contains a non linear multiplication containing a
+    // variable
+    namespace has_nonlinear_var_mul_ns {
+    struct found {};
+    struct proc {
+        arith_util m_arith;
+        proc(ast_manager &m) : m_arith(m) {}
+        bool is_numeral(expr *e) const {
+            // XXX possibly handle cases where e simplifies to a numeral
+            return m_arith.is_numeral(e);
+        }
+        void operator()(var *n) const {}
+        void operator()(quantifier *q) const {}
+        void operator()(app const *n) const {
+            expr *e1, *e2;
+            if (m_arith.is_mul(n, e1, e2) && ((is_var(e1) && !is_numeral(e2)) ||
+                                              (is_var(e2) && !is_numeral(e1))))
+                throw found();
+        }
+    };
+    } // namespace has_nonlinear_var_mul_ns
+
+    bool has_nonlinear_var_mul(expr *e, ast_manager &m) {
+        has_nonlinear_var_mul_ns::proc proc(m);
+        try {
+            for_each_expr(proc, e);
+        } catch (const has_nonlinear_var_mul_ns::found &) { return true; }
+        return false;
+    }
+    namespace contains_mod_ns {
+    struct found {};
+    struct contains_mod_proc {
+        ast_manager &m;
+        arith_util m_arith;
+        contains_mod_proc(ast_manager &a_m) : m(a_m), m_arith(m) {}
+        void operator()(expr *n) const {}
+        void operator()(app *n) {
+            if (m_arith.is_mod(n)) throw found();
+        }
+    };
+    } // namespace contains_mod_ns
+    bool contains_mod(expr_ref e) {
+        contains_mod_ns::contains_mod_proc t(e.get_manager());
+        try {
+            for_each_expr(t, e);
+            return false;
+        } catch (const contains_mod_ns::found &) { return true; }
+    }
+
+    // set the value of a boolean function to true in model
+    void set_true_in_mdl(model &model, func_decl *f) {
+        SASSERT(f->get_arity() == 0);
+        model.unregister_decl(f);
+        model.register_decl(f, model.get_manager().mk_true());
+        model.reset_eval_cache();
+    }
+    } // namespace spacer
 template class rewriter_tpl<spacer::adhoc_rewriter_cfg>;
 template class rewriter_tpl<spacer::adhoc_rewriter_rpp>;

@@ -112,6 +112,7 @@ namespace spacer {
     void simplify_bounds (expr_ref_vector &lemmas);
     void normalize(expr *e, expr_ref &out, bool use_simplify_bounds = true, bool factor_eqs = false);
 
+    void normalize_order(expr *e, expr_ref &out);
     /**
      * Ground expression by replacing all free variables by skolem
      * constants. On return, out is the resulting expression, and vars is
@@ -141,6 +142,40 @@ namespace spacer {
     bool is_clause(ast_manager &m, expr *n); 
     bool is_literal(ast_manager &m, expr *n);
     bool is_atom(ast_manager &m, expr *n);
+
+    /// Returns number of free variables in a given expression
+    unsigned get_num_vars(expr *e);
+    void get_uninterp_consts(expr *a, expr_ref_vector &out);
+    bool has_nonlinear_mul(expr *e, ast_manager &m);
+
+    /// Checks whether there is a var*u_c term
+    bool has_nonlinear_var_mul(expr *e, ast_manager &m);
+
+    // check whether lit is an instance of mono_var_pattern
+    bool is_mono_var(expr *lit, ast_manager &m, arith_util &a_util);
+
+    // a mono_var_pattern has only one variable in the whole expression and is
+    // linear. lit is the literal with the variable
+    bool should_conjecture(const expr_ref &p, expr_ref &lit);
+
+    // drop all literals from n that match leq_lit. Returns whether some have
+    // been dropped or not
+    bool drop_lit(expr_ref_vector &in, expr_ref &lit, expr_ref_vector &out);
+
+    bool contains_mod(expr_ref e);
+    // convert an arith expression lit into t <= c. returns true if such a
+    // normal form exists and c is numeral
+    bool normalize_to_le(expr *lit, expr_ref &t, expr_ref &c);
+    // multiply fml with num and simplify rationals to ints
+    // assumes that fml is in sop form and is linear
+    void mul_and_simp(expr_ref &fml, rational num);
+
+    void mul_if_not_one(rational coeff, expr *e, expr_ref &res);
+    // get all numeral values in the formula
+    void extract_nums(expr_ref fml, vector<rational> &res);
+
+    // set f to true in model
+    void set_true_in_mdl(model &model, func_decl *f);
 }
 
 #endif
