@@ -192,10 +192,6 @@ class mbp::impl {
         vars.shrink(j);
     }
 
-    // over-approximation
-    bool contains_uninterpreted(expr* v) {
-        return true;
-    }
 
     bool extract_bools(model_evaluator& eval, expr_ref_vector& fmls, expr* fml) {
         TRACE("qe", tout << "extract bools: " << mk_pp(fml, m) << "\n";);
@@ -218,9 +214,6 @@ class mbp::impl {
                 TRACE("qe", tout << "found: " << mk_pp(e, m) << " " << val << "\n";);
                 if (!m.inc())
                     continue;
-                if (!m.is_true(val) && !m.is_false(val) && contains_uninterpreted(val)) {
-                    throw default_exception("could not evaluate Boolean in model");
-                }
 
                 //skip bools that are not prime implicants.
                 if (!m.is_true(val) && !m.is_false(val)) continue;
