@@ -1,12 +1,15 @@
 #include "spacer_concretize.h"
 namespace {
-// checks whether f is a binary operator or the negation of one
+
+/// checks whether f is a binary operator or a negation of a binary operator
 bool is_bin_op(expr *f, expr *&lhs, expr *&rhs, ast_manager &m) {
-    if (!is_app(f)) return false;
     expr *e;
+
+    if (!is_app(f)) return false;
     if (m.is_not(f, e)) return is_bin_op(e, lhs, rhs, m);
     app *f_app = to_app(f);
     if (f_app->get_num_args() != 2) return false;
+
     lhs = f_app->get_arg(0);
     rhs = f_app->get_arg(1);
     return true;
@@ -294,21 +297,23 @@ void concretize::concretize_lit(model_ref &model, expr_ref lit,
         rational nw_bnd;
         m_arith.is_numeral(val, nw_bnd);
         if (change > 0) {
-          if (!ub.contains(var))
-            ub.insert(var, nw_bnd);
-          else if (nw_bnd < ub[var])
-            ub[var] = nw_bnd;
-          TRACE("concretize_verb", tout << "upper bounds for " << mk_pp(var, m)
-                                        << " is " << ub[var] << "\n";);
+            if (!ub.contains(var))
+                ub.insert(var, nw_bnd);
+            else if (nw_bnd < ub[var])
+                ub[var] = nw_bnd;
+            TRACE("concretize_verb", tout << "upper bounds for "
+                                          << mk_pp(var, m) << " is " << ub[var]
+                                          << "\n";);
         }
 
         if (change < 0) {
-          if (!lb.contains(var))
-            lb.insert(var, nw_bnd);
-          else if (nw_bnd > lb[var])
-            lb[var] = nw_bnd;
-          TRACE("concretize_verb", tout << "lower bounds for " << mk_pp(var, m)
-                                        << " is " << lb[var] << "\n";);
+            if (!lb.contains(var))
+                lb.insert(var, nw_bnd);
+            else if (nw_bnd > lb[var])
+                lb[var] = nw_bnd;
+            TRACE("concretize_verb", tout << "lower bounds for "
+                                          << mk_pp(var, m) << " is " << lb[var]
+                                          << "\n";);
         }
     }
 }
