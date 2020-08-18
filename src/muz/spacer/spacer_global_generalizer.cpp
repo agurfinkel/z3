@@ -16,17 +16,26 @@ Author:
 
 
 --*/
-#include "muz/spacer/spacer_global_generalizer.h"
+#include "muz/spacer/spacer_context.h"
+
 #include "ast/arith_decl_plugin.h"
 #include "ast/ast_util.h"
 #include "ast/for_each_expr.h"
 #include "ast/rewriter/expr_safe_replace.h"
 #include "model/model2expr.h"
 #include "muz/spacer/spacer_context.h"
+#include "muz/spacer/spacer_global_generalizer.h"
 #include "muz/spacer/spacer_manager.h"
 #include "muz/spacer/spacer_matrix.h"
 #include "muz/spacer/spacer_util.h"
 #include "smt/smt_solver.h"
+
+using namespace spacer;
+
+namespace spacer {
+class lemma_info;
+using lemma_info_vector = vector<lemma_info, true>;
+} // namespace spacer
 
 namespace {
 // compute lcm of m_val and denomenator of input expression n, if n is a numeral
@@ -117,14 +126,17 @@ void lemma_global_generalizer::operator()(lemma_ref &lemma) {
     core(lemma);
 }
 
-// rewrite all uninterpreted constants in fml to real
-void lemma_global_generalizer::to_real(expr_ref &fml) {
-    if (m_arith.is_numeral(fml) || m_arith.is_to_real(fml)) return;
-    if (is_uninterp_const(fml) && m_arith.is_int(fml)) {
-        fml = m_arith.mk_to_real(fml);
+/// Coerce all uninterpreted constants in \p fml to real
+static void to_real(expr_ref &fml) {
+    ast_manager &m = fml.get_manager();
+    arith_util arith(m);
+    array_util array(m);
+    if (arith.is_numeral(fml) || arith.is_to_real(fml)) return;
+    if (is_uninterp_const(fml) && arith.is_int(fml)) {
+        fml = arith.mk_to_real(fml);
         return;
     }
-    if (m_arith.is_arith_expr(fml)) {
+    if (arith.is_arith_expr(fml)) {
         app *fml_app = to_app(fml);
         unsigned N = fml_app->get_num_args();
         expr_ref_vector nw_args(m);
@@ -137,19 +149,19 @@ void lemma_global_generalizer::to_real(expr_ref &fml) {
         fml = m.mk_app(fml_app->get_family_id(), fml_app->get_decl_kind(),
                        nw_args.size(), nw_args.c_ptr());
     }
-    if (m_array.is_select(fml)) {
+    if (array.is_select(fml)) {
         app *fml_app = to_app(fml);
         expr_ref_vector nw_args(m);
         expr_ref ind(m);
-        ind = m_arith.mk_to_real(fml_app->get_arg(1));
+        ind = arith.mk_to_real(fml_app->get_arg(1));
         nw_args.push_back(fml_app->get_arg(0));
-        nw_args.push_back(m_arith.mk_to_int(ind));
-        fml = m_array.mk_select(nw_args.size(), nw_args.c_ptr());
+        nw_args.push_back(arith.mk_to_int(ind));
+        fml = array.mk_select(nw_args.size(), nw_args.c_ptr());
     }
 }
 
 // get lcm of all the denominators of all the rational values in e
-rational lemma_global_generalizer::get_lcm(expr *e) {
+static rational get_lcm(expr *e, ast_manager &m) {
     compute_lcm g(m);
     for_each_expr(g, e);
     TRACE("subsume_verb",
@@ -157,17 +169,19 @@ rational lemma_global_generalizer::get_lcm(expr *e) {
     return g.m_val;
 }
 
-// converts all numerals and uninterpreted constants in fml to int
-// assumes that fml is in sop
-void lemma_global_generalizer::to_int(expr_ref &fml) {
+/// Converts all numerals and uninterpreted constants in fml to int
+/// requires that \p fml is in sop form
+static void to_int(expr_ref &fml) {
+    ast_manager &m = fml.get_manager();
+    arith_util arith(m);
     TRACE("subsume_verb", tout << "to int " << mk_pp(fml, m) << "\n";);
-    if (m_arith.is_to_real(fml)) {
+    if (arith.is_to_real(fml)) {
         fml = to_app(fml)->get_arg(0);
         TRACE("subsume_dbg_verb",
               tout << "to int finished " << mk_pp(fml, m) << "\n";);
         return;
     }
-    if (m_arith.is_to_int(fml)) {
+    if (arith.is_to_int(fml)) {
         expr_ref res(m);
         fml = to_app(fml)->get_arg(0);
         to_int(fml);
@@ -177,9 +191,9 @@ void lemma_global_generalizer::to_int(expr_ref &fml) {
     if (is_uninterp_const(fml)) return;
 
     rational val;
-    if (m_arith.is_numeral(fml, val)) {
+    if (arith.is_numeral(fml, val)) {
         // If its not an integer, try constructing int from it
-        fml = m_arith.mk_int(val);
+        fml = arith.mk_int(val);
 
         TRACE("subsume_verb",
               tout << "to int finished " << mk_pp(fml, m) << "\n";);
@@ -199,27 +213,29 @@ void lemma_global_generalizer::to_int(expr_ref &fml) {
     TRACE("subsume_verb", tout << "to int finished " << mk_pp(fml, m) << "\n";);
 }
 
-// convert reals to ints in fml by multiplying with lcm of denominators
-void lemma_global_generalizer::normalize(expr_ref &fml) {
+/// Normalize all fractional constants in \p fml to integers
+static void normalize(expr_ref &fml) {
+    ast_manager m = fml.get_manager();
+    arith_util arith(m);
     expr_ref_vector fml_vec(m), rw_fml(m);
     flatten_and(fml.get(), fml_vec);
     expr *s, *t;
     for (expr *e : fml_vec) {
-        if (!(m_arith.is_arith_expr(e) || m.is_eq(e))) continue;
+        if (!(arith.is_arith_expr(e) || m.is_eq(e))) continue;
         app *e_app = to_app(e);
         SASSERT(e_app->get_num_args() == 2);
         expr_ref lhs(e_app->get_arg(0), m);
         expr_ref rhs(e_app->get_arg(1), m);
         // handle mod
-        if (m_arith.is_mod(lhs, s, t)) {
+        if (arith.is_mod(lhs, s, t)) {
             rational val;
             bool is_int = false;
             // if e is mod, it should already be in linear integer arithmetic
-            if (!(m_arith.is_numeral(t, val, is_int) && is_int &&
-                  get_lcm(s) == rational::one()))
+            if (!(arith.is_numeral(t, val, is_int) && is_int &&
+                  get_lcm(s, m) == rational::one()))
                 NOT_IMPLEMENTED_YET();
             // mod cannot be equal to a non-integer
-            SASSERT(m_arith.is_numeral(rhs, val, is_int) && is_int);
+            SASSERT(arith.is_numeral(rhs, val, is_int) && is_int);
             // since e is already in linear integer arithmetic, it is already
             // normalized
             rw_fml.push_back(e);
@@ -229,7 +245,7 @@ void lemma_global_generalizer::normalize(expr_ref &fml) {
         // make sure that no child is a mod expression
         SASSERT(!contains_mod(lhs));
         SASSERT(!contains_mod(rhs));
-        rational lcm = get_lcm(e);
+        rational lcm = get_lcm(e, m);
         SASSERT(lcm != rational::zero());
         if (lcm != 1) {
             mul_and_simp(lhs, lcm);
@@ -247,13 +263,14 @@ void lemma_global_generalizer::normalize(expr_ref &fml) {
     fml = mk_and(rw_fml);
 }
 
-// rewrite all uninterpreted constants in e to real
-void lemma_global_generalizer::to_real(const expr_ref_vector &fml,
-                                       expr_ref &nw_fml) {
+/// Coerce all uninterpreted constants in \p fml to real
+static void to_real(const expr_ref_vector &fml, expr_ref &nw_fml) {
+    ast_manager &m = fml.get_manager();
+    arith_util arith(m);
     expr_ref lhs(m), rhs(m);
     expr_ref_vector rw_fml(m);
     for (auto &e : fml) {
-        if (!(m.is_eq(e) || m_arith.is_arith_expr(e))) continue;
+        if (!(m.is_eq(e) || arith.is_arith_expr(e))) continue;
         app *e_app = to_app(e);
         SASSERT(to_app(e)->get_num_args() == 2);
         lhs = e_app->get_arg(0);
@@ -266,16 +283,19 @@ void lemma_global_generalizer::to_real(const expr_ref_vector &fml,
     nw_fml = mk_and(rw_fml);
 }
 
-// create new vars to compute convex cls
+/// Create new vars to compute convex cls
 void lemma_global_generalizer::add_dim_vars(const lemma_cluster &lc) {
+    // AG: review
     const expr_ref &pattern = lc.get_pattern();
     expr_offset r;
     std::pair<unsigned, unsigned> v;
-    unsigned n_vars = get_num_vars(pattern);
+
     // temporary pointer to an existing expr
     expr_ref var(m);
-    const lemma_info_vector &lemmas(lc.get_lemmas());
-    const substitution &t_sub(lemmas[0].get_sub());
+
+    auto &lemmas = lc.get_lemmas();
+    const substitution &t_sub = lemmas.get(0).get_sub();
+    unsigned n_vars = get_num_vars(pattern);
     for (unsigned j = 0; j < n_vars; j++) {
         // get var id
         t_sub.get_binding(j, v, r);
@@ -283,6 +303,7 @@ void lemma_global_generalizer::add_dim_vars(const lemma_cluster &lc) {
         var = m.mk_var(v.first, m.get_sort(r.get_expr()));
         m_cvx_cls.set_dimension(j, var);
         m_dim_vars[j] = var;
+
         app_ref var_app(m);
         var_app = m.mk_fresh_const("mrg_cvx", m.get_sort(r.get_expr()));
         // TODO: do we need two variables for a <= x <= b ?
@@ -295,7 +316,7 @@ void lemma_global_generalizer::add_dim_vars(const lemma_cluster &lc) {
 void lemma_global_generalizer::populate_cvx_cls(const lemma_cluster &lc) {
     vector<rational> point;
     unsigned n_vars = get_num_vars(lc.get_pattern());
-    const lemma_info_vector &lemmas(lc.get_lemmas());
+    const lemma_info_vector &lemmas = lc.get_lemmas();
     expr_offset r;
     std::pair<unsigned, unsigned> v;
     // compute lcm
@@ -428,7 +449,7 @@ bool lemma_global_generalizer::subsume(lemma_cluster lc, lemma_ref &lemma,
         to_real(temp, cvx_pattern);
         TRACE("subsume_verb",
               tout << "To real produced " << cvx_pattern << "\n";);
-        rewrite_frsh_cnsts();
+        rewrite_fresh_cnsts();
         TRACE("subsume_verb", tout << "Rewrote " << mk_pp(mk_and(temp), m)
                                    << " into " << cvx_pattern << "\n";);
     }
@@ -548,13 +569,14 @@ bool lemma_global_generalizer::core(lemma_ref &lemma) {
 
     const expr_ref &pattern = lc.get_pattern();
 
-    TRACE("global",
-          tout << "Start global generalization of lemma : " << lemma->get_cube()
-               << "\n Discovered cluster: " << pattern << "\n and lemmas ";
-          for (const lemma_info &lemma
-               : lc.get_lemmas()) {
-              tout << "\n \t" << lemma.get_lemma()->get_cube();
-          });
+    TRACE(
+        "global",
+        tout << "Start global generalization of lemma : " << lemma->get_cube()
+             << "\n Discovered cluster: " << pattern << "\n and lemmas ";
+        for (const lemma_info &lemma
+             : lc.get_lemmas()) {
+            tout << "\n \t" << lemma.get_lemma()->get_cube();
+        });
     if (has_nonlinear_var_mul(pattern, m)) {
         m_st.m_num_non_lin++;
         if (pt_cls->get_gas() == 0) {
@@ -639,7 +661,7 @@ bool lemma_global_generalizer::core(lemma_ref &lemma) {
     return false;
 }
 
-// replace vars with uninterpreted constants in fml
+/// Replace bound vars in \p fml with uninterpreted constants
 void lemma_global_generalizer::var_to_const(expr *pattern,
                                             expr_ref &rw_pattern) {
     expr_safe_replace s(m);
@@ -655,11 +677,11 @@ void lemma_global_generalizer::var_to_const(expr *pattern,
 }
 
 // convert all LIA constants in m_dim_frsh_cnsts to LRA constants using to_real
-void lemma_global_generalizer::rewrite_frsh_cnsts() {
+void lemma_global_generalizer::rewrite_fresh_cnsts() {
     app_ref var_app(m);
     for (unsigned i = 0; i < m_dim_vars.size(); i++) {
-        if (m_arith.is_real(m_dim_frsh_cnsts[i].get())) continue;
-        var_app = m_arith.mk_to_real(m_dim_frsh_cnsts[i].get());
+        if (m_arith.is_real(m_dim_frsh_cnsts.get(i))) continue;
+        var_app = m_arith.mk_to_real(m_dim_frsh_cnsts.get(i));
         m_dim_frsh_cnsts[i] = var_app;
     }
 }

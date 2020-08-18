@@ -62,6 +62,13 @@ class reach_fact;
 typedef ref<reach_fact> reach_fact_ref;
 typedef sref_vector<reach_fact> reach_fact_ref_vector;
 
+class lemma;
+typedef ref<lemma> lemma_ref;
+typedef sref_vector<lemma> lemma_ref_vector;
+
+class lemma_info;
+using lemma_info_vector = vector<lemma_info, true>;
+
 class reach_fact {
     unsigned m_ref_count;
 
@@ -107,12 +114,6 @@ public:
         }
 };
 
-
-class lemma;
-typedef ref<lemma> lemma_ref;
-typedef sref_vector<lemma> lemma_ref_vector;
-
-typedef pob pob;
 
 // a lemma
 class lemma {
@@ -208,7 +209,8 @@ class lemma_info {
     const lemma_ref &get_lemma() const { return m_lemma; }
     const substitution &get_sub() const { return m_sub; }
 };
-typedef vector<lemma_info, true> lemma_info_vector;
+
+
 //
 // a cluster of lemmas
 // a pattern and lemmas that match the pattern
