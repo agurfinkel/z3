@@ -1,3 +1,4 @@
+#pragma once
 /*++
 Copyright (c) 2020 Arie Gurfinkel
 
@@ -17,7 +18,6 @@ Author:
 
 --*/
 
-#pragma once
 #include "muz/spacer/spacer_context.h"
 #include "muz/spacer/spacer_convex_closure.h"
 

@@ -1,3 +1,4 @@
+#pragma once
 /*++
 Copyright (c) 2020 Arie Gurfinkel
 
@@ -17,7 +18,6 @@ Author:
 
 --*/
 #include "muz/spacer/spacer_context.h"
-
 #include "ast/arith_decl_plugin.h"
 #include "ast/ast_util.h"
 #include "ast/for_each_expr.h"
