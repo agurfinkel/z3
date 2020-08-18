@@ -40,6 +40,8 @@ void convex_closure::collect_statistics(statistics &st) const {
     m_kernel.collect_statistics(st);
 }
 
+// call m_kernel to reduce dimensions of m_data
+// return the rank of m_data
 unsigned convex_closure::reduce_dim() {
     if (m_dim <= 1) return m_dim;
     bool non_null_ker = m_kernel.compute_kernel();
@@ -58,55 +60,63 @@ unsigned convex_closure::reduce_dim() {
     return m_dim - ker.num_rows();
 }
 
-// AG: better comment
-// for each row [0, 1, 0, 1 , 1], rewrite m_lcm*v1 = -1*m_lcm*v3 + -1*1
+// construct linear equalities implied by m_data
+// the linear equalities are m_kernel * m_dim_vars = 0
+// the new equalities are stored in m_dim_vars
+// for each row [0, 1, 0, 1 , 1] in m_kernel, the equality m_lcm*v1 =
+// -1*m_lcm*v3 + -1*1 is constructed and stored at index 1 of m_dim_vars
 void convex_closure::rewrite_lin_deps() {
-    // AG: this code needs comments
     const spacer_matrix &ker = m_kernel.get_kernel();
     unsigned n_rows = ker.num_rows();
     SASSERT(n_rows > 0);
 
     // contains the right hand side of equality
     expr_ref_vector rw(m);
+    // copy m_dim_vars to temp
     expr_ref_vector temp(m_dim_vars);
-    // start generating equalities from the bottom row
+
+    // for each row in m_kernel, construct the equality m_kernel[i] . m_dim_vars
+    // = 0 construct the equality so that only one constant in m_dim_vars is on
+    // the lhs
     for (unsigned i = n_rows; i > 0; i--) {
         const vector<rational> &row = ker.get_row(i - 1);
         rw.reset();
-        // index of the variable we are going to rewrite
+        // index of first non zero element in row
         int pv = -1;
         // are we constructing rhs or lhs
         bool rhs = false;
+        // coefficient of m_dim_vars[pv]
         rational coeff(1);
+        // the elements in row are the coefficients of m_dim_vars
+        // some elements should go to the rhs, in which case the signs are
+        // changed
         for (unsigned j = 0; j < row.size(); j++) {
             rational val = row.get(j);
             SASSERT(j >= i - 1 || val.is_zero());
             SASSERT(val.is_int());
-            if (!val.is_zero()) {
-                if (!rhs) {
-                    // Cannot re-write the last dim
-                    if (j == row.size() - 1) continue;
-                    SASSERT(pv == -1);
-                    pv = j;
-                    rhs = true;
-                    // In integer echelon form, the pivot need not be 1
-                    if (val != 1) coeff = val;
+            if (!val.is_zero()) continue;
+            if (!rhs) {
+                // Cannot re-write the last element
+                if (j == row.size() - 1) continue;
+                SASSERT(pv == -1);
+                pv = j;
+                rhs = true;
+                // In integer echelon form, the pivot need not be 1
+                if (val != 1) coeff = val;
+            } else {
+                expr_ref prod(m);
+                if (j != row.size() - 1) {
+                    mul_if_not_one(-1 * val * m_lcm, m_dim_vars[j].get(), prod);
+                } else if (m_is_arith) {
+                    // AG: determine type from expression, don't assume it
+                    // AG: is INT and not REAL
+                    prod = m_arith.mk_int(-1 * val);
                 } else {
-                    expr_ref prod(m);
-                    if (j != row.size() - 1) {
-                        mul_if_not_one(-1 * val * m_lcm, m_dim_vars[j].get(),
-                                       prod);
-                    } else if (m_is_arith) {
-                        // AG: determine type from expression, don't assume it
-                        // AG: is INT and not REAL
-                        prod = m_arith.mk_int(-1 * val);
-                    } else {
-                        // AG: determine type from expression. Document
-                        // assumption about bit-width
-                        prod = m_bv.mk_numeral(-1 * val, m_bv_sz);
-                    }
-                    rw.push_back(prod);
+                    // AG: determine type from expression. Document
+                    // assumption about bit-width
+                    prod = m_bv.mk_numeral(-1 * val, m_bv_sz);
                 }
+                rw.push_back(prod);
             }
         }
 
@@ -126,13 +136,13 @@ void convex_closure::rewrite_lin_deps() {
         }
 
         // AG: use bv_util
-        // AG: n-ary bvadd is not in SMT-LIB standard. Might not be fully supported in Z3
+        // AG: n-ary bvadd is not in SMT-LIB standard. Might not be fully
+        // supported in Z3
         expr_ref rw_term(m);
         rw_term = m_is_arith ? m_arith.mk_add(rw.size(), rw.c_ptr())
                              : m.mk_app(m_bv.get_fid(), OP_BADD, rw.size(),
                                         rw.c_ptr());
         expr_ref pv_var(m);
-        // AG: mul_if_not_one seems to not work correctly for BV expressions
         mul_if_not_one(coeff * m_lcm, m_dim_vars[pv].get(), pv_var);
 
         rw_term = m.mk_eq(pv_var, rw_term);
@@ -146,19 +156,20 @@ void convex_closure::rewrite_lin_deps() {
     for (auto t : temp) m_dim_vars.push_back(t);
 }
 
+// collect linear equalities generated by the rewrite_lin_deps function
 void convex_closure::add_lin_deps(expr_ref_vector &res_vec) {
     expr *lhs, *rhs;
     for (auto v : m_dim_vars) {
         if (m.is_eq(v, lhs, rhs)) {
             SASSERT(lhs != rhs);
-            // AG: why wrap v by expr_ref?
-            res_vec.push_back(expr_ref(v, m));
+            res_vec.push_back(v);
         }
     }
     TRACE("cvx_dbg", tout << "Linear equalities true of the matrix "
                           << mk_and(res_vec) << "\n";);
 }
 
+/// add (Col_j . m_nw_vars = m_dim_vars[j]) to res_vec
 void convex_closure::add_sum_cnstr(unsigned i, expr_ref_vector &res_vec) {
     expr_ref_vector add(m);
     expr_ref mul(m), result_var(m), exp(m);
@@ -218,6 +229,7 @@ bool congruent_mod(const vector<rational> &data, rational m) {
     return true;
 }
 } // namespace
+
 // check whether \exists m, d s.t data[i] mod m = d. Returns the largest m and
 // corresponding d
 // TODO: find the largest divisor, not the smallest.
@@ -286,6 +298,7 @@ bool convex_closure::closure(expr_ref_vector &res_vec) {
     return true;
 }
 
+// construct the formula result_var <= bnd or result_var >= bnd
 expr *convex_closure::mk_ineq(expr_ref result_var, rational bnd, bool is_le) {
     if (m_is_arith) {
         if (is_le) return m_arith.mk_le(result_var, m_arith.mk_int(bnd));
@@ -295,6 +308,7 @@ expr *convex_closure::mk_ineq(expr_ref result_var, rational bnd, bool is_le) {
     if (is_le) return m_bv.mk_ule(result_var, m_bv.mk_numeral(bnd, m_bv_sz));
     return m_bv.mk_ule(m_bv.mk_numeral(bnd, m_bv_sz), result_var);
 }
+
 void convex_closure::do_one_dim_cls(expr_ref var, expr_ref_vector &res_vec) {
     // The convex closure over one dimension is just a bound
     vector<rational> data;
