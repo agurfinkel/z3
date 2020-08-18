@@ -1,15 +1,14 @@
+#pragma once
 /**++
 Copyright (c) 2020 Arie Gurfinkel
 
 Module Name:
 
-    spacer_sage_interface.cpp
+   spacer_arith_kernel_sage.cpp
 
 Abstract:
 
-    Interface to Sage package. 
-
-    Used for Debug only!
+   Matrix kernel computation using Sage
 
 Author:
 
@@ -18,22 +17,25 @@ Author:
 
 Notes:
 
+  USED FOR DEBUGGING AND PROTOTYPING ONLY!!!
 --*/
 
-#include "muz/spacer/spacer_sage_interface.h"
+#include "muz/spacer/spacer_arith_kernel.h"
+#include "util/stopwatch.h"
+#include "util/util.h"
 
-#include <fstream>
-#include <istream>
 #include <csignal>
-#include <sstream>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <istream>
+#include <sstream>
 #include <sys/wait.h>
 #include <unistd.h>
 
-namespace spacer {
+using namespace spacer;
 
-// XXX: hide Sage
+namespace {
 /**
 Abstracts interface to Sage.
 
@@ -110,6 +112,7 @@ Sage::Sage() {
         exit(1);
     }
 }
+
 bool Sage::test() {
     char temp_name[] = "/tmp/spacersage.XXXXXX";
     int tmp_fd = mkstemp(temp_name);
@@ -175,46 +178,58 @@ bool Sage::test() {
     std::remove(temp_name);
     return ok == 4;
 }
-} // namespace spacer
 
-namespace spacer {
+class sage_arith_kernel_plugin : public spacer_arith_kernel::plugin {
+    struct stats {
+        stopwatch watch;
+        unsigned m_sage_calls;
+        stats() { reset(); }
+        void reset() {
+            watch.reset();
+            m_sage_calls = 0;
+        }
+    };
+    stats m_st;
 
-Sage_kernel::Sage_kernel(spacer_matrix &matrix)
-    : arith_kernel(matrix, true), m_sage(alloc(spacer::Sage)) {}
+    scoped_ptr<Sage> m_sage;
+    bool compute_kernel(const spacer_matrix &in_matrix,
+                        spacer_matrix &out_kernel) override;
+    std::string matrix_to_string(const spacer_matrix &matrix) const;
 
-std::string Sage_kernel::matrix_to_string() const {
+  public:
+    sage_arith_kernel_plugin() : m_sage(alloc(Sage)) {}
+    ~sage_arith_kernel_plugin() {}
+
+    virtual void collect_statistics(statistics &st) const override {
+        st.update("time.spacer.sage", m_st.watch.get_seconds());
+        st.update("SPACER sage calls", m_st.m_sage_calls);
+    }
+    virtual void reset_statistics() override {
+        m_st.reset(); }
+    virtual void reset() override {
+        m_sage = alloc(Sage);
+    }
+};
+
+std::string
+sage_arith_kernel_plugin::matrix_to_string(const spacer_matrix &matrix) const {
     std::stringstream ss;
     ss << "[\n";
-    for (unsigned i = 0; i < m_matrix.num_rows(); i++) {
+    for (unsigned i = 0; i < matrix.num_rows(); i++) {
         ss << "(";
-        for (unsigned j = 0; j < m_matrix.num_cols() - 1; j++) {
-            ss << m_matrix.get(i, j).to_string();
+        for (unsigned j = 0; j < matrix.num_cols() - 1; j++) {
+            ss << matrix.get(i, j).to_string();
             ss << ", ";
         }
-        ss << m_matrix.get(i, m_matrix.num_cols() - 1).to_string();
+        ss << matrix.get(i, matrix.num_cols() - 1).to_string();
         ss << "),\n";
     }
     ss << "]\n";
     return ss.str();
 }
 
-std::string Sage_kernel::kernel_to_string() const {
-    std::stringstream ss;
-    ss << "[\n";
-    for (unsigned i = 0; i < m_kernel.num_rows(); i++) {
-        ss << "(";
-        for (unsigned j = 0; j < m_kernel.num_cols() - 1; j++) {
-            ss << m_kernel.get(i, j).to_string();
-            ss << ", ";
-        }
-        ss << m_kernel.get(i, m_kernel.num_cols() - 1).to_string();
-        ss << "),\n";
-    }
-    ss << "]\n";
-    return ss.str();
-}
-
-bool Sage_kernel::compute_arith_kernel() {
+bool sage_arith_kernel_plugin::compute_kernel(const spacer_matrix &in_matrix,
+                                              spacer_matrix &out_kernel) {
     scoped_watch _w_(m_st.watch);
 
     char temp_name[] = "/tmp/spacersage.XXXXXX";
@@ -226,11 +241,11 @@ bool Sage_kernel::compute_arith_kernel() {
     }
     m_st.m_sage_calls++;
     TRACE("sage-interface", tout << temp_name << "\n";);
-    unsigned n_cols = m_matrix.num_cols();
-    unsigned n_rows = m_matrix.num_rows();
+    unsigned n_cols = in_matrix.num_cols();
+    unsigned n_rows = in_matrix.num_rows();
     TRACE("sage-interface", tout << "Going to compute kernel of " << n_rows
                                  << " by " << n_cols << " matrix \n"
-                                 << matrix_to_string() << "\n";);
+                                 << matrix_to_string(in_matrix) << "\n";);
 
     auto out = m_sage->get_ostream();
     fprintf(out, "f = open (\"\%s\", 'w')\n", temp_name);
@@ -245,7 +260,7 @@ bool Sage_kernel::compute_arith_kernel() {
     for (unsigned i = 0; i < n_rows; i++) {
         ss_stream << ("[");
         for (unsigned j = 0; j < n_cols; j++) {
-            ss_stream << m_matrix.get(i, j).to_string();
+            ss_stream << in_matrix.get(i, j).to_string();
             ss_stream << (", ");
         }
         ss_stream << ("1");
@@ -302,7 +317,7 @@ bool Sage_kernel::compute_arith_kernel() {
         TRACE("sage-interface", tout << "Rank of kernel is zero\n";);
         return false;
     }
-    m_kernel = spacer_matrix(total_rows, n_cols + 1);
+    out_kernel = spacer_matrix(total_rows, n_cols + 1);
     ifs >> misc_char;
     SASSERT(misc_char == '[');
     while (true) {
@@ -319,12 +334,12 @@ bool Sage_kernel::compute_arith_kernel() {
                 ifs.close();
                 close(tmp_fd);
                 std::remove(temp_name);
-                m_kernel.reset(0);
+                out_kernel.reset(0);
                 SASSERT(false);
                 return false;
             }
             ifs >> misc_char;
-            m_kernel.set(row, col, rational(num));
+            out_kernel.set(row, col, rational(num));
             col++;
             if (misc_char == ')') { break; }
             SASSERT(misc_char == ',');
@@ -343,11 +358,17 @@ bool Sage_kernel::compute_arith_kernel() {
     TRACE("sage-interface", tout << "finished reading sage output\n";);
     ifs.close();
 
-    TRACE("sage-interface", tout << "Kernel is " << kernel_to_string() << "\n";);
+    TRACE("sage-interface",
+          tout << "Kernel is " << matrix_to_string(out_kernel) << "\n";);
 
     close(tmp_fd);
     // TODO: remove file even if sage/spacer terminates before reaching here
     std::remove(temp_name);
     return true;
 }
+
+} // namespace
+
+namespace spacer {
+spacer_arith_kernel::plugin *mk_sage_plugin() { return nullptr; }
 } // namespace spacer

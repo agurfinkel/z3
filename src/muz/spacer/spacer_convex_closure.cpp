@@ -14,18 +14,17 @@ void convex_closure::collect_statistics(statistics &st) const {
               m_st.watch.get_seconds());
     st.update("SPACER num dim reduction success", m_st.m_num_reductions);
     st.update("SPACER max cvx reduced dim", m_st.m_max_dim);
-    m_kernel->collect_statistics(st);
+    m_kernel.collect_statistics(st);
 }
 unsigned convex_closure::reduce_dim() {
     if (m_dim <= 1) return m_dim;
-    SASSERT(m_kernel != nullptr);
-    bool non_null_ker = m_kernel->compute_kernel();
+    bool non_null_ker = m_kernel.compute_kernel();
     if (!non_null_ker) {
         TRACE("cvx_dbg",
               tout << "No linear dependencies between pattern vars\n";);
         return m_dim;
     }
-    const spacer_matrix &ker = m_kernel->get_kernel();
+    const spacer_matrix &ker = m_kernel.get_kernel();
 
     SASSERT(ker.num_rows() > 0);
     SASSERT(ker.num_rows() <= m_dim);
@@ -37,7 +36,7 @@ unsigned convex_closure::reduce_dim() {
 
 // for each row [0, 1, 0, 1 , 1], rewrite m_lcm*v1 = -1*m_lcm*v3 + -1*1
 void convex_closure::rewrite_lin_deps() {
-    const spacer_matrix &ker = m_kernel->get_kernel();
+    const spacer_matrix &ker = m_kernel.get_kernel();
     unsigned n_rows = ker.num_rows();
     SASSERT(n_rows > 0);
     // index of the variable we are going to rewrite

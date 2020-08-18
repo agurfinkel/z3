@@ -4,7 +4,6 @@
 #include "ast/ast_util.h"
 #include "muz/spacer/spacer_arith_kernel.h"
 #include "muz/spacer/spacer_matrix.h"
-#include "muz/spacer/spacer_sage_interface.h"
 #include "muz/spacer/spacer_util.h"
 #include "util/statistics.h"
 namespace spacer {
@@ -16,9 +15,10 @@ class convex_closure {
     bool m_is_arith;
     unsigned m_dim;
     spacer_matrix m_data;
-    bool is_int_points() const;
     expr_ref_vector m_dim_vars;
-    arith_kernel *m_kernel;
+    spacer_arith_kernel m_kernel;
+
+    bool is_int_points() const;
     unsigned reduce_dim();
     void rewrite_lin_deps();
     void add_lin_deps(expr_ref_vector &res_vec);
@@ -61,15 +61,14 @@ class convex_closure {
   public:
     convex_closure(ast_manager &man, bool use_sage)
         : m(man), m_arith(m), m_bv(m), m_bv_sz(0), m_is_arith(true), m_dim(0),
-          m_data(0, 0), m_dim_vars(m), m_nw_vars(m) {
+          m_data(0, 0), m_dim_vars(m), m_kernel(m_data), m_nw_vars(m) {
+
         if (use_sage)
-            m_kernel = new Sage_kernel(m_data);
-        else
-            m_kernel = new arith_kernel(m_data, false);
+            m_kernel.set_plugin(mk_sage_plugin());
     }
-    ~convex_closure() { delete m_kernel; }
+
     void reset(unsigned n_cols) {
-        m_kernel->reset();
+        m_kernel.reset();
         m_data.reset(n_cols);
         m_dim_vars.reset();
         m_dim = n_cols;

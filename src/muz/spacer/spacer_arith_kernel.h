@@ -1,13 +1,43 @@
 #pragma once
+/**++
+Copyright (c) 2020 Arie Gurfinkel
+
+Module Name:
+
+    spacer_arith_kernel.cpp
+
+Abstract:
+
+    Compute kernel of a matrix
+
+Author:
+
+    Hari Govind
+    Arie Gurfinkel
+
+Notes:
+
+--*/
 
 #include "spacer_matrix.h"
 #include "util/statistics.h"
 namespace spacer {
 
 /**
-Interface to compute arith_kernel. Computes kernel of m_matrix
+   Computes a kernel of a matrix.
 */
-class arith_kernel {
+class spacer_arith_kernel {
+  public:
+    class plugin {
+    public:
+        virtual ~plugin() {}
+        virtual bool compute_kernel(const spacer_matrix &in_matrix,
+                                    spacer_matrix &out_kernel) = 0;
+        virtual void collect_statistics(statistics &st) const = 0;
+        virtual void reset_statistics() = 0;
+        virtual void reset() = 0;
+    };
+
   protected:
     struct stats {
         unsigned m_failed;
@@ -16,37 +46,41 @@ class arith_kernel {
     };
     stats m_st;
 
+    /// Input matrix for which kernel is to be computed
     const spacer_matrix &m_matrix;
+    /// Output matrix representing the kernel
     spacer_matrix m_kernel;
-    bool m_use_sage;
+
+    scoped_ptr<plugin> m_plugin;
     virtual bool compute_arith_kernel() { return false; };
 
   public:
-    arith_kernel(spacer_matrix &matrix, bool use_sage)
-        : m_matrix(matrix), m_kernel(0, 0), m_use_sage(use_sage) {}
-    virtual ~arith_kernel() = default;
+    spacer_arith_kernel(spacer_matrix &matrix)
+        : m_matrix(matrix), m_kernel(0, 0) {}
+    virtual ~spacer_arith_kernel() = default;
 
-    bool compute_kernel() {
-        SASSERT(m_matrix.num_rows() > 1);
-        if (m_matrix.compute_linear_deps(m_kernel)) {
-            // the matrix cannot be reduced further
-            if (m_matrix.num_cols() - m_kernel.num_rows() <= 1) return true;
-            // AG: what if we are not using Sage?
-            // use sage to find ALL linear deps
-            m_kernel.reset(m_kernel.num_cols());
-            SASSERT(m_matrix.num_cols() > 2);
-        }
-        if (m_matrix.num_cols() > 2) m_st.m_failed++;
-        return (m_matrix.num_cols() > 2) && m_use_sage &&
-               compute_arith_kernel();
-    }
+    void set_plugin(spacer_arith_kernel::plugin *plugin) { m_plugin = plugin; }
 
-    void reset() { m_kernel = spacer_matrix(0, 0); }
+    /// Computes kernel of a matrix
+    /// returns true if the computation was successful
+    /// use spacer_arith_kernel::get_kernel() to get the kernel
+    bool compute_kernel();
+    bool operator()() { return compute_kernel(); }
     const spacer_matrix &get_kernel() const { return m_kernel; }
+
+    void reset() { m_kernel = spacer_matrix(0, 0); if (m_plugin) m_plugin->reset();}
+
     virtual void collect_statistics(statistics &st) const {
-        st.update("SPACER need sage", m_st.m_failed);
+        st.update("SPACER arith kernel failed", m_st.m_failed);
+        if (m_plugin) { m_plugin->collect_statistics(st); }
     }
-    virtual void reset_statistics() { m_st.reset(); }
+    virtual void reset_statistics() {
+        m_st.reset();
+        if (m_plugin) m_plugin->reset_statistics();
+    }
 };
+
+/// \brief Kernel computation using Sage package
+spacer_arith_kernel::plugin *mk_sage_plugin();
 
 } // namespace spacer
