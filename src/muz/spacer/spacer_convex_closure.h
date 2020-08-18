@@ -56,11 +56,12 @@ class convex_closure {
     // lowest value such that m_lcm*m_data is an integer matrix
     rational m_lcm;
 
-    expr* mk_ineq(expr_ref var, rational bnd, bool is_le);
+    expr *mk_ineq(expr_ref var, rational bnd, bool is_le);
+
   public:
     convex_closure(ast_manager &man, bool use_sage)
-        : m(man), m_arith(m), m_bv(m), m_bv_sz(0), m_is_arith(true), m_dim(0), m_data(0, 0), m_dim_vars(m),
-          m_nw_vars(m) {
+        : m(man), m_arith(m), m_bv(m), m_bv_sz(0), m_is_arith(true), m_dim(0),
+          m_data(0, 0), m_dim_vars(m), m_nw_vars(m) {
         if (use_sage)
             m_kernel = new Sage_kernel(m_data);
         else
