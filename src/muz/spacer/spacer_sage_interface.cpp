@@ -1,9 +1,63 @@
-#include "spacer_sage_interface.h"
+/**++
+Copyright (c) 2020 Arie Gurfinkel
+
+Module Name:
+
+    spacer_sage_interface.cpp
+
+Abstract:
+
+    Interface to Sage package. Used for debug and prototype only!
+
+Author:
+
+    Hari Govind
+    Arie Gurfinkel
+
+Notes:
+
+--*/
+
+#include "muz/spacer/spacer_sage_interface.h"
+
 #include <istream>
 #include <sstream>
 #include <stdio.h>
 #include <string.h>
+
 namespace spacer {
+
+// XXX: hide Sage
+/**
+Abstracts interface to Sage.
+
+Supports initialization and writing to Sage.
+
+To get output from Sage, write to file and read from the file.
+
+HG: Could not find standard methods to convert file descriptors to streams.
+*/
+class Sage {
+    FILE *m_out;
+    FILE *m_in;
+    std::string tmp_name;
+    pid_t child_pid;
+
+    /// Test sage communication
+    bool test();
+
+  public:
+    /// Start sage interface
+    Sage();
+    ~Sage() {
+        kill(child_pid, SIGKILL);
+        int status;
+        waitpid(child_pid, &status, 0);
+    }
+    FILE *get_ostream() const { return m_out; }
+    FILE *get_istream() const { return m_in; }
+};
+
 Sage::Sage() {
     int to_sage_pipe[2];
     int from_sage_pipe[2];
@@ -39,10 +93,10 @@ Sage::Sage() {
         close(from_sage_pipe[0]);
         dup2(to_sage_pipe[0], STDIN_FILENO);
         dup2(from_sage_pipe[1], STDOUT_FILENO);
-        // setup arguments
+
+        // setup arguments, assume sage is in PATH
         char *const argv[3] = {(char *)"sage", NULL, NULL};
-        // TODO: sage complains that it can't find $HOME. But sage works without
-        // it.
+        // XXX: sage complains that it can't find $HOME, but works regardless
         execvp("sage", argv);
         perror("execvpe for sage");
     } else {
@@ -50,7 +104,6 @@ Sage::Sage() {
         exit(1);
     }
 }
-
 bool Sage::test() {
     char temp_name[] = "/tmp/spacersage.XXXXXX";
     int tmp_fd = mkstemp(temp_name);
@@ -116,6 +169,12 @@ bool Sage::test() {
     std::remove(temp_name);
     return ok == 4;
 }
+} // namespace spacer
+
+namespace spacer {
+
+Sage_kernel::Sage_kernel(spacer_matrix &matrix)
+    : arith_kernel(matrix, true), m_sage(alloc(spacer::Sage)) {}
 
 std::string Sage_kernel::print_matrix() const {
     std::stringstream ss;
@@ -167,7 +226,7 @@ bool Sage_kernel::compute_arith_kernel() {
                                  << " by " << n_cols << " matrix \n"
                                  << print_matrix() << "\n";);
 
-    auto out = m_sage.get_ostream();
+    auto out = m_sage->get_ostream();
     fprintf(out, "f = open (\"\%s\", 'w')\n", temp_name);
 
     // construct  matrix in sage
@@ -203,7 +262,7 @@ bool Sage_kernel::compute_arith_kernel() {
     size_t n = 0;
     ssize_t t = 0;
     // read all the lines printed by sage until we get okay
-    auto in = m_sage.get_istream();
+    auto in = m_sage->get_istream();
     do {
         t = getline(&std_ok, &n, in);
         if (t == -1 || feof(in) || ferror(in)) {
