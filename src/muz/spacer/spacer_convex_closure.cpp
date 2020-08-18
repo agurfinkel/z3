@@ -1,14 +1,37 @@
+/**++
+Copyright (c) 2020 Arie Gurfinkel
+
+Module Name:
+
+    spacer_convex_closure.cpp
+
+Abstract:
+
+   Compute convex closure of polyhedra
+
+Author:
+
+    Hari Govind
+    Arie Gurfinkel
+
+Notes:
+
+--*/
+
 #include "muz/spacer/spacer_convex_closure.h"
 
 namespace spacer {
-bool convex_closure::is_int_points() const {
-    rational val;
-    for (unsigned i = 0; i < m_data.num_rows(); i++) {
-        for (unsigned j = 0; j < m_data.num_cols(); j++)
-            if (!m_data.get(i, j).is_int()) return false;
-    }
-    return true;
+
+void convex_closure::reset(unsigned n_cols) {
+    m_kernel.reset();
+    m_data.reset(n_cols);
+    m_dim_vars.reset();
+    m_dim = n_cols;
+    m_dim_vars.reserve(m_dim);
+    m_nw_vars.reset();
+    m_bv_sz = 0;
 }
+
 void convex_closure::collect_statistics(statistics &st) const {
     st.update("time.spacer.solve.reach.gen.global.cvx_cls",
               m_st.watch.get_seconds());
@@ -16,6 +39,7 @@ void convex_closure::collect_statistics(statistics &st) const {
     st.update("SPACER max cvx reduced dim", m_st.m_max_dim);
     m_kernel.collect_statistics(st);
 }
+
 unsigned convex_closure::reduce_dim() {
     if (m_dim <= 1) return m_dim;
     bool non_null_ker = m_kernel.compute_kernel();
@@ -34,26 +58,25 @@ unsigned convex_closure::reduce_dim() {
     return m_dim - ker.num_rows();
 }
 
+// AG: better comment
 // for each row [0, 1, 0, 1 , 1], rewrite m_lcm*v1 = -1*m_lcm*v3 + -1*1
 void convex_closure::rewrite_lin_deps() {
+    // AG: this code needs comments
     const spacer_matrix &ker = m_kernel.get_kernel();
     unsigned n_rows = ker.num_rows();
     SASSERT(n_rows > 0);
-    // index of the variable we are going to rewrite
-    int pv = -1;
+
     // contains the right hand side of equality
     expr_ref_vector rw(m);
-    // are we constructing rhs or lhs
-    bool rhs = false;
     expr_ref_vector temp(m_dim_vars);
-    // start generating equalities from bottom row
+    // start generating equalities from the bottom row
     for (unsigned i = n_rows; i > 0; i--) {
-
         const vector<rational> &row = ker.get_row(i - 1);
-        // reset everything
         rw.reset();
-        pv = -1;
-        rhs = false;
+        // index of the variable we are going to rewrite
+        int pv = -1;
+        // are we constructing rhs or lhs
+        bool rhs = false;
         rational coeff(1);
         for (unsigned j = 0; j < row.size(); j++) {
             rational val = row.get(j);
@@ -70,13 +93,18 @@ void convex_closure::rewrite_lin_deps() {
                     if (val != 1) coeff = val;
                 } else {
                     expr_ref prod(m);
-                    if (j != row.size() - 1)
+                    if (j != row.size() - 1) {
                         mul_if_not_one(-1 * val * m_lcm, m_dim_vars[j].get(),
                                        prod);
-                    else if (m_is_arith)
+                    } else if (m_is_arith) {
+                        // AG: determine type from expression, don't assume it
+                        // AG: is INT and not REAL
                         prod = m_arith.mk_int(-1 * val);
-                    else
-                        prod = m_bv.mk_numeral(-1*val, m_bv_sz);
+                    } else {
+                        // AG: determine type from expression. Document
+                        // assumption about bit-width
+                        prod = m_bv.mk_numeral(-1 * val, m_bv_sz);
+                    }
                     rw.push_back(prod);
                 }
             }
@@ -85,18 +113,26 @@ void convex_closure::rewrite_lin_deps() {
         // make sure that there is a non-zero entry
         SASSERT(pv != -1);
 
+        // AG: types must be determined from expressions
+        // AG: what is different between m_arith.mk_eq() and m.mk_eq()?
         if (rw.size() == 0) {
             if (m_is_arith)
                 temp[pv] = m_arith.mk_eq(m_dim_vars[pv].get(),
-                                     m_arith.mk_int(rational::zero()));
+                                         m_arith.mk_int(rational::zero()));
             else
-                temp[pv] = m.mk_eq(m_dim_vars[pv].get(), m_bv.mk_numeral(rational::zero(), m_bv_sz));
+                temp[pv] = m.mk_eq(m_dim_vars[pv].get(),
+                                   m_bv.mk_numeral(rational::zero(), m_bv_sz));
             continue;
         }
 
+        // AG: use bv_util
+        // AG: n-ary bvadd is not in SMT-LIB standard. Might not be fully supported in Z3
         expr_ref rw_term(m);
-        rw_term = m_is_arith ? m_arith.mk_add(rw.size(), rw.c_ptr()):  m.mk_app(m_bv.get_fid(), OP_BADD, rw.size(), rw.c_ptr());
+        rw_term = m_is_arith ? m_arith.mk_add(rw.size(), rw.c_ptr())
+                             : m.mk_app(m_bv.get_fid(), OP_BADD, rw.size(),
+                                        rw.c_ptr());
         expr_ref pv_var(m);
+        // AG: mul_if_not_one seems to not work correctly for BV expressions
         mul_if_not_one(coeff * m_lcm, m_dim_vars[pv].get(), pv_var);
 
         rw_term = m.mk_eq(pv_var, rw_term);
@@ -115,6 +151,7 @@ void convex_closure::add_lin_deps(expr_ref_vector &res_vec) {
     for (auto v : m_dim_vars) {
         if (m.is_eq(v, lhs, rhs)) {
             SASSERT(lhs != rhs);
+            // AG: why wrap v by expr_ref?
             res_vec.push_back(expr_ref(v, m));
         }
     }
@@ -135,7 +172,9 @@ void convex_closure::add_sum_cnstr(unsigned i, expr_ref_vector &res_vec) {
         res_vec.push_back(
             m.mk_eq(m_arith.mk_add(add.size(), add.c_ptr()), result_var));
     else
-        res_vec.push_back(m.mk_eq(m.mk_app(m_bv.get_fid(), OP_BADD, add.size(), add.c_ptr()), result_var));
+        res_vec.push_back(
+            m.mk_eq(m.mk_app(m_bv.get_fid(), OP_BADD, add.size(), add.c_ptr()),
+                    result_var));
 }
 
 void convex_closure::syn_cls(expr_ref_vector &res_vec) {
@@ -171,10 +210,10 @@ bool is_sorted(const vector<rational> &data) {
     }
     return true;
 }
-//check whether elements are congruent modulo m
+// check whether elements are congruent modulo m
 bool congruent_mod(const vector<rational> &data, rational m) {
     rational p = data[0] % m;
-    for(auto k : data)
+    for (auto k : data)
         if (k % m != p) return false;
     return true;
 }
@@ -204,14 +243,23 @@ bool convex_closure::compute_div_constraint(const vector<rational> &data,
     d = (m + d) % m;
     SASSERT(d >= rational::zero());
 
-    TRACE("cvx_dbg_verb", tout << "div constraint generated. cf " << m << " and off " << d << "\n";);
+    TRACE("cvx_dbg_verb", tout << "div constraint generated. cf " << m
+                               << " and off " << d << "\n";);
     return true;
 }
 
+static bool is_int_matrix(const spacer_matrix &matrix) {
+    rational val;
+    for (unsigned i = 0, rows = matrix.num_rows(); i < rows; i++) {
+        for (unsigned j = 0, cols = matrix.num_cols(); j < cols; j++)
+            if (!matrix.get(i, j).is_int()) return false;
+    }
+    return true;
+}
 // returns whether the closure is exact or not (i.e syntactic)
 bool convex_closure::closure(expr_ref_vector &res_vec) {
     scoped_watch _w_(m_st.watch);
-    SASSERT(is_int_points());
+    SASSERT(is_int_matrix(m_data));
     unsigned red_dim = reduce_dim();
     // store dim var before rewrite
     expr_ref var(m);
@@ -238,15 +286,13 @@ bool convex_closure::closure(expr_ref_vector &res_vec) {
     return true;
 }
 
-expr* convex_closure::mk_ineq(expr_ref result_var, rational bnd, bool is_le) {
+expr *convex_closure::mk_ineq(expr_ref result_var, rational bnd, bool is_le) {
     if (m_is_arith) {
-        if (is_le)
-            return m_arith.mk_le(result_var, m_arith.mk_int(bnd));
+        if (is_le) return m_arith.mk_le(result_var, m_arith.mk_int(bnd));
         return m_arith.mk_ge(result_var, m_arith.mk_int(bnd));
     }
-    //TODO figure out whether we need signed versions or unsigned versions.
-    if (is_le)
-        return m_bv.mk_ule(result_var, m_bv.mk_numeral(bnd, m_bv_sz));
+    // TODO figure out whether we need signed versions or unsigned versions.
+    if (is_le) return m_bv.mk_ule(result_var, m_bv.mk_numeral(bnd, m_bv_sz));
     return m_bv.mk_ule(m_bv.mk_numeral(bnd, m_bv_sz), result_var);
 }
 void convex_closure::do_one_dim_cls(expr_ref var, expr_ref_vector &res_vec) {
@@ -278,10 +324,13 @@ void convex_closure::do_one_dim_cls(expr_ref var, expr_ref_vector &res_vec) {
                 mul_if_not_one(m_lcm, v, result_var);
                 if (m_is_arith)
                     res_vec.push_back(m_arith.mk_eq(
-                                          m_arith.mk_mod(result_var, m_arith.mk_int(cr)),
-                                          m_arith.mk_int(off)));
+                        m_arith.mk_mod(result_var, m_arith.mk_int(cr)),
+                        m_arith.mk_int(off)));
                 else
-                    res_vec.push_back(m.mk_eq(m_bv.mk_bv_urem(result_var, m_bv.mk_numeral(cr, m_bv_sz)), m_bv.mk_numeral(off, m_bv_sz)));
+                    res_vec.push_back(
+                        m.mk_eq(m_bv.mk_bv_urem(result_var,
+                                                m_bv.mk_numeral(cr, m_bv_sz)),
+                                m_bv.mk_numeral(off, m_bv_sz)));
             }
         }
     }
