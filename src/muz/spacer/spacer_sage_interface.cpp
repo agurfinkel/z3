@@ -7,7 +7,9 @@ Module Name:
 
 Abstract:
 
-    Interface to Sage package. Used for debug and prototype only!
+    Interface to Sage package. 
+
+    Used for Debug only!
 
 Author:
 
@@ -20,10 +22,14 @@ Notes:
 
 #include "muz/spacer/spacer_sage_interface.h"
 
+#include <fstream>
 #include <istream>
+#include <csignal>
 #include <sstream>
-#include <stdio.h>
-#include <string.h>
+#include <cstdio>
+#include <cstring>
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace spacer {
 
@@ -176,7 +182,7 @@ namespace spacer {
 Sage_kernel::Sage_kernel(spacer_matrix &matrix)
     : arith_kernel(matrix, true), m_sage(alloc(spacer::Sage)) {}
 
-std::string Sage_kernel::print_matrix() const {
+std::string Sage_kernel::matrix_to_string() const {
     std::stringstream ss;
     ss << "[\n";
     for (unsigned i = 0; i < m_matrix.num_rows(); i++) {
@@ -192,7 +198,7 @@ std::string Sage_kernel::print_matrix() const {
     return ss.str();
 }
 
-std::string Sage_kernel::print_kernel() const {
+std::string Sage_kernel::kernel_to_string() const {
     std::stringstream ss;
     ss << "[\n";
     for (unsigned i = 0; i < m_kernel.num_rows(); i++) {
@@ -224,7 +230,7 @@ bool Sage_kernel::compute_arith_kernel() {
     unsigned n_rows = m_matrix.num_rows();
     TRACE("sage-interface", tout << "Going to compute kernel of " << n_rows
                                  << " by " << n_cols << " matrix \n"
-                                 << print_matrix() << "\n";);
+                                 << matrix_to_string() << "\n";);
 
     auto out = m_sage->get_ostream();
     fprintf(out, "f = open (\"\%s\", 'w')\n", temp_name);
@@ -337,7 +343,7 @@ bool Sage_kernel::compute_arith_kernel() {
     TRACE("sage-interface", tout << "finished reading sage output\n";);
     ifs.close();
 
-    TRACE("sage-interface", tout << "Kernel is " << print_kernel() << "\n";);
+    TRACE("sage-interface", tout << "Kernel is " << kernel_to_string() << "\n";);
 
     close(tmp_fd);
     // TODO: remove file even if sage/spacer terminates before reaching here
