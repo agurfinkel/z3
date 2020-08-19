@@ -163,13 +163,18 @@ namespace spacer {
     bool drop_lit(expr_ref_vector &in, expr_ref &lit, expr_ref_vector &out);
 
     bool contains_mod(expr_ref e);
-    // convert an arith expression lit into t <= c. returns true if such a
-    // normal form exists and c is numeral
+
+    // try to compute \p t and \p c such that (t <= c) ==> lit and c is a
+    // numeral
+    //\p lit has to be an arith expression
     bool normalize_to_le(expr *lit, expr_ref &t, expr_ref &c);
+
     // multiply fml with num and simplify rationals to ints
-    // assumes that fml is in sop form and is linear
+    // fml should be in LIA/LRA/Arrays
+    // assumes that fml is a sum of products
     void mul_and_simp(expr_ref &fml, rational num);
 
+    // if coeff == 1, return res else return coeff*res
     void mul_if_not_one(rational coeff, expr *e, expr_ref &res);
     // get all numeral values in the formula
     void extract_nums(expr_ref fml, vector<rational> &res);
