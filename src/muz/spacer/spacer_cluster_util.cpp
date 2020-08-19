@@ -25,7 +25,16 @@ Notes:
 #include "ast/rewriter/rewriter_def.h"
 #include "ast/rewriter/th_rewriter.h"
 #include "muz/spacer/spacer_util.h"
-
+namespace {
+/// return true if \p f is an arithmetic <=, <, >, >=
+bool is_arith_ineq(expr *f, expr *&lhs, expr *&rhs, ast_manager &m) {
+    arith_util m_arith(m);
+    if (!(m_arith.is_arith_expr(f) && to_app(f)->get_num_args() == 2))
+        return false;
+    return m_arith.is_gt(f, lhs, rhs) || m_arith.is_ge(f, lhs, rhs) ||
+           m_arith.is_le(f, lhs, rhs) || m_arith.is_lt(f, lhs, rhs);
+}
+} // namespace
 namespace spacer {
 // 2 non-mul terms are compared according to their ids
 // non-mul term < mul term
@@ -212,39 +221,32 @@ void normalize_order(expr *e, expr_ref &out) {
     STRACE("spacer_normalize_order'",
            tout << "OUT After :" << mk_pp(out, out.m()) << "\n";);
 }
-
-// try to compute \p t and \p c such that (t <= c) ==> lit and c is a numeral
-//\p lit has to be an arith expression
-bool normalize_to_le(expr *lit, expr_ref &t, expr_ref &c) {
-    expr *e0 = nullptr, *e2 = nullptr;
+/// given an arithmetic inequality \p lit, try to compute \p t and \p c such
+/// that (t <= c) ==> lit and c is a numeral returns true if such a t, c can be
+/// found. false otherwise
+bool under_approx_using_le(expr *lit, expr_ref &t, expr_ref &c) {
+    expr *e0 = nullptr, *e1 = nullptr, *e2 = nullptr;
     rational n;
     bool is_int = true;
     ast_manager &m = t.get_manager();
     arith_util m_arith(m);
-    if (!(m_arith.is_arith_expr(lit) ||
-          (m.is_not(lit, e0) && m_arith.is_arith_expr(e0))))
-        return false;
-    if (!e0) e0 = lit;
-    t = to_app(e0)->get_arg(0);
-    e2 = to_app(e0)->get_arg(1);
+    bool is_not = m.is_not(lit, e0);
+    if (!is_not) e0 = lit;
+    //if lit is not an arithmetic inequality, it is not handled
+    if (!is_arith_ineq(e0, e1, e2, m)) return false;
     if (!m_arith.is_numeral(e2, n, is_int)) return false;
-    if (m_arith.is_le(lit) ||
-        (m.is_not(lit) && m_arith.is_gt(e0))) {
-        c = e2;
-    }
-    if (m_arith.is_lt(lit) ||
-        (m.is_not(lit) && m_arith.is_ge(e0))) {
-        //x <= (k-1) ==> x < k
+    t = e1;
+    if ((!is_not && m_arith.is_le(e0)) || (is_not && m_arith.is_gt(e0))) c = e2;
+    if ((!is_not && m_arith.is_lt(e0)) || (is_not && m_arith.is_ge(e0))) {
+        // x <= (k-1) ==> x < k
         c = m_arith.mk_numeral(n - 1, is_int);
     }
-    if (m_arith.is_gt(lit) ||
-        (m.is_not(lit) && m_arith.is_le(e0))) {
+    if ((!is_not && m_arith.is_gt(e0)) || (is_not && m_arith.is_le(e0))) {
         // -x <= -k - 1 ==> x > k
         mul_and_simp(t, rational::minus_one());
         c = m_arith.mk_numeral(-n - 1, is_int);
     }
-    if (m_arith.is_ge(lit) ||
-        (m.is_not(lit) && m_arith.is_lt(e0))) {
+    if ((!is_not && m_arith.is_ge(e0)) || (is_not && m_arith.is_lt(e0))) {
         // -x <= -k ==> x >= k
         mul_and_simp(t, rational::minus_one());
         c = m_arith.mk_numeral(-n, is_int);
