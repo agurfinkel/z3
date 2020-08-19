@@ -62,8 +62,8 @@ class lemma_global_generalizer : public lemma_generalizer {
     // cvx_cls  ==> mbp
     ref<solver> m_solver;
 
-    /// Compute a lemma \p l that subsumes lemmas in \p lc
-    /// AG: what is \p res for?
+    /// Compute a cube \p res that subsumes lemmas in \p lc
+    /// lemma \p l is required in case lemma bindings are to be updated
     bool subsume(lemma_cluster lc, lemma_ref &l, expr_ref_vector &res);
 
     /// Skolemize fresh variables that appear under array select
