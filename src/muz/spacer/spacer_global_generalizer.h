@@ -56,7 +56,7 @@ class lemma_global_generalizer : public lemma_generalizer {
     // save fresh constants for mbp
     app_ref_vector m_dim_frsh_cnsts;
     // save vars from cluster pattern
-    expr_ref_vector m_dim_vars;
+    var_ref_vector m_dim_vars;
 
     // solver to get model for computing mbp and to check whether
     // cvx_cls  ==> mbp

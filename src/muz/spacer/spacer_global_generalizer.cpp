@@ -290,7 +290,7 @@ void lemma_global_generalizer::add_dim_vars(const lemma_cluster &lc) {
     std::pair<unsigned, unsigned> v;
 
     // temporary pointer to an existing expr
-    expr_ref var(m);
+    var_ref var(m);
 
     auto &lemmas = lc.get_lemmas();
     const substitution &t_sub = lemmas.get(0).get_sub();
@@ -431,7 +431,7 @@ bool lemma_global_generalizer::subsume(lemma_cluster lc, lemma_ref &lemma,
         const var_ref_vector &vars = m_cvx_cls.get_nw_vars();
         app_ref var_app(m);
         for (auto v : vars) {
-            m_dim_vars.push_back(to_expr(v));
+            m_dim_vars.push_back(v);
             var_app = m.mk_fresh_const("mrg_syn_cvx", m_arith.mk_real());
             m_dim_frsh_cnsts.push_back(var_app);
         }

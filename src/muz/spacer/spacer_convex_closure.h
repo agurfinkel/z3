@@ -56,8 +56,8 @@ class convex_closure {
     unsigned m_dim;
     // vector of points
     spacer_matrix m_data;
-    // dimension of m_data
-    expr_ref_vector m_dim_vars;
+    // dimension of m_data. Can be in LIA/LRA/BV
+    var_ref_vector m_dim_vars;
     // stores kernel of m_data
     spacer_arith_kernel m_kernel;
     // vector of cnsts introduced by syntactic convex closure
@@ -113,7 +113,7 @@ class convex_closure {
     }
 
     /// \brief Name a dimension by an expression
-    void set_dimension(unsigned i, expr *v) {
+    void set_dimension(unsigned i, var *v) {
         SASSERT(i < dims());
         SASSERT(m_dim_vars[i] == nullptr);
         m_dim_vars[i] = v;
