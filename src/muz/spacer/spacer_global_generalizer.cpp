@@ -1,4 +1,3 @@
-#pragma once
 /*++
 Copyright (c) 2020 Arie Gurfinkel
 
