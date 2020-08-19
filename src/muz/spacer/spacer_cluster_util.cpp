@@ -332,7 +332,8 @@ struct extract_nums_proc {
 };
 } // namespace extract_nums_ns
 
-// WARNING: run time is number of nodes in e * res.size !!!
+// get all numeral values in the formula
+// run time is number of nodes in e * res.size !!!
 // TODO: use sets to speed things up ?
 void extract_nums(expr_ref e, vector<rational> &res) {
     extract_nums_ns::extract_nums_proc t(e.get_manager(), res);
