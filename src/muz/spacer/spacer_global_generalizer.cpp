@@ -285,7 +285,6 @@ static void to_real(const expr_ref_vector &fml, expr_ref &nw_fml) {
 
 /// Create new vars to compute convex cls
 void lemma_global_generalizer::add_dim_vars(const lemma_cluster &lc) {
-    // AG: review
     const expr_ref &pattern = lc.get_pattern();
     expr_offset r;
     std::pair<unsigned, unsigned> v;
