@@ -212,7 +212,9 @@ void normalize_order(expr *e, expr_ref &out) {
     STRACE("spacer_normalize_order'",
            tout << "OUT After :" << mk_pp(out, out.m()) << "\n";);
 }
-// TODO: this is broken for real expressions. Fix it as needed.
+
+// try to compute \p t and \p c such that (t <= c) ==> lit and c is a numeral
+//\p lit has to be an arith expression
 bool normalize_to_le(expr *lit, expr_ref &t, expr_ref &c) {
     expr *e0 = nullptr, *e1 = nullptr, *e2 = nullptr;
     rational n;
@@ -293,6 +295,7 @@ void mul_and_simp(expr_ref &fml, rational num) {
     app *fml_app = to_app(fml);
     unsigned N = fml_app->get_num_args();
     expr_ref_vector nw_args(m);
+    SASSERT(m_arith.is_add(fml));
     for (unsigned i = 0; i < N; i++) {
         expr *chld = fml_app->get_arg(i);
         if (m_arith.is_mul(chld)) {
@@ -313,6 +316,7 @@ void mul_and_simp(expr_ref &fml, rational num) {
                    nw_args.size(), nw_args.c_ptr());
 }
 
+// if coeff == 1, return res else return coeff*res
 void mul_if_not_one(rational coeff, expr *e, expr_ref &res) {
     ast_manager &m = res.get_manager();
     arith_util m_arith(m);
