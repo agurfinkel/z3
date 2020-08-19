@@ -54,7 +54,8 @@ class convex_closure {
 
     // size of m_dim_vars
     unsigned m_dim;
-    // vector of points
+    // vector of points. m_data always contains integers irrespective of the
+    // sort of m_dim_vars
     spacer_matrix m_data;
     // dimension of m_data. Can be in LIA/LRA/BV
     var_ref_vector m_dim_vars;
@@ -65,6 +66,7 @@ class convex_closure {
     var_ref_vector m_nw_vars;
 
     /// least value such that m_lcm*m_data is an integer matrix
+    /// TODO: take this outside convex_closure
     rational m_lcm;
 
     // call m_kernel to reduce dimensions of m_data
@@ -153,7 +155,7 @@ class convex_closure {
     void collect_statistics(statistics &st) const;
     void reset_statistics() { m_st.reset(); }
 
-    /// AG: COMMENT
+    /// set lcm
     void set_lcm(rational l) { m_lcm = l; }
 };
 } // namespace spacer
