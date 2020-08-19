@@ -94,7 +94,7 @@ void convex_closure::rewrite_lin_deps() {
             rational val = row.get(j);
             SASSERT(j >= i - 1 || val.is_zero());
             SASSERT(val.is_int());
-            if (!val.is_zero()) continue;
+            if (val.is_zero()) continue;
             if (!rhs) {
                 // Cannot re-write the last element
                 if (j == row.size() - 1) continue;
