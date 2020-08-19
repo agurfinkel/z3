@@ -320,11 +320,12 @@ void mul_and_simp(expr_ref &fml, rational num) {
 void mul_if_not_one(rational coeff, expr *e, expr_ref &res) {
     ast_manager &m = res.get_manager();
     arith_util m_arith(m);
+    array_util m_array(m);
     bv_util m_bv(m);
     if (coeff == rational::one())
         res = expr_ref(e, m);
     else if (m_arith.is_arith_expr(e) || m_arith.is_int(e) ||
-             m_arith.is_real(e))
+             m_arith.is_real(e) || m_array.is_select(e))
         res = m_arith.mk_mul(m_arith.mk_numeral(coeff, coeff.is_int()), e);
     else {
         SASSERT(m_bv.is_bv(e));
