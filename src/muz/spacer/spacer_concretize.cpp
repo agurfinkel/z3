@@ -325,7 +325,7 @@ void concretize::concretize_cube(const expr_ref_vector &conj, model_ref &model,
     SASSERT(lb.size() == 0);
     expr_ref t(m), c(m);
     for (expr *lit : conj) {
-        if (normalize_to_le(lit, t, c)) {
+        if (under_approx_using_le(lit, t, c)) {
             TRACE("concretize", tout << "literal is " << mk_pp(lit, m)
                                      << "normalized as: " << mk_pp(t, m)
                                      << " <= " << mk_pp(c, m) << "\n";);

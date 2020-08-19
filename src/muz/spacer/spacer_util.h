@@ -164,10 +164,9 @@ namespace spacer {
 
     bool contains_mod(expr_ref e);
 
-    // try to compute \p t and \p c such that (t <= c) ==> lit and c is a
-    // numeral
-    //\p lit has to be an arith expression
-    bool normalize_to_le(expr *lit, expr_ref &t, expr_ref &c);
+    /// try to compute \p t and \p c such that (t <= c) ==> lit and c is a
+    /// numeral
+    bool under_approx_using_le(expr *lit, expr_ref &t, expr_ref &c);
 
     // multiply fml with num and simplify rationals to ints
     // fml should be in LIA/LRA/Arrays
