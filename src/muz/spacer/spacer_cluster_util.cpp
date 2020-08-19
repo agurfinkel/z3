@@ -216,63 +216,46 @@ void normalize_order(expr *e, expr_ref &out) {
 // try to compute \p t and \p c such that (t <= c) ==> lit and c is a numeral
 //\p lit has to be an arith expression
 bool normalize_to_le(expr *lit, expr_ref &t, expr_ref &c) {
-    expr *e0 = nullptr, *e1 = nullptr, *e2 = nullptr;
+    expr *e0 = nullptr, *e2 = nullptr;
     rational n;
     bool is_int = true;
     ast_manager &m = t.get_manager();
     arith_util m_arith(m);
-    if (m_arith.is_le(lit, e1, e2) ||
-        (m.is_not(lit, e0) && m_arith.is_gt(e0, e1, e2))) {
-        t = e1;
+    if (!(m_arith.is_arith_expr(lit) ||
+          (m.is_not(lit, e0) && m_arith.is_arith_expr(e0))))
+        return false;
+    if (!e0) e0 = lit;
+    t = to_app(e0)->get_arg(0);
+    e2 = to_app(e0)->get_arg(1);
+    if (!m_arith.is_numeral(e2, n, is_int)) return false;
+    if (m_arith.is_le(lit) ||
+        (m.is_not(lit) && m_arith.is_gt(e0))) {
         c = e2;
-        if (m_arith.is_numeral(e2, n))
-            return true;
-        else
-            return false;
-    } else if (m_arith.is_lt(lit, e1, e2) ||
-               (m.is_not(lit, e0) && m_arith.is_ge(e0, e1, e2))) {
-        // x < k  ==> x <= (k-1)
-        t = e1;
-        if (m_arith.is_numeral(e2, n, is_int)) {
-            c = m_arith.mk_numeral(n - 1, is_int);
-            return true;
-        } else {
-            c = m_arith.mk_add(e2, m_arith.mk_int(-1));
-            return false;
-        }
-    } else if (m_arith.is_gt(lit, e1, e2) ||
-               (m.is_not(lit, e0) && m_arith.is_le(e0, e1, e2))) {
-        // x > k ==> -x < -k ==> -x <= -k - 1
-        t = e1;
-        mul_and_simp(t, rational::minus_one());
-        if (m_arith.is_numeral(e2, n, is_int)) {
-            c = m_arith.mk_numeral(-n - 1, is_int);
-            return true;
-        } else {
-            expr_ref temp(m);
-            temp = e2;
-            mul_and_simp(temp, rational::minus_one());
-            expr_ref minus_one(m);
-            minus_one = m_arith.mk_numeral(rational(-1), is_int);
-            c = m_arith.mk_add(temp, minus_one);
-            return false;
-        }
-    } else if (m_arith.is_ge(lit, e1, e2) ||
-               (m.is_not(lit, e0) && m_arith.is_lt(e0, e1, e2))) {
-        // x >= k ==> -x <= -k
-        t = e1;
-        mul_and_simp(t, rational::minus_one());
-        if (m_arith.is_numeral(e2, n, is_int)) {
-            c = m_arith.mk_numeral(-n, is_int);
-            return true;
-        } else {
-            c = e2;
-            mul_and_simp(c, rational::minus_one());
-            return false;
-        }
     }
-    return false;
+    if (m_arith.is_lt(lit) ||
+        (m.is_not(lit) && m_arith.is_ge(e0))) {
+        //x <= (k-1) ==> x < k
+        c = m_arith.mk_numeral(n - 1, is_int);
+    }
+    if (m_arith.is_gt(lit) ||
+        (m.is_not(lit) && m_arith.is_le(e0))) {
+        // -x <= -k - 1 ==> x > k
+        mul_and_simp(t, rational::minus_one());
+        c = m_arith.mk_numeral(-n - 1, is_int);
+    }
+    if (m_arith.is_ge(lit) ||
+        (m.is_not(lit) && m_arith.is_lt(e0))) {
+        // -x <= -k ==> x >= k
+        mul_and_simp(t, rational::minus_one());
+        c = m_arith.mk_numeral(-n, is_int);
+    }
+    SASSERT(c.get());
+    return true;
 }
+
+// multiply fml with num and simplify rationals to ints
+// fml should be in LIA/LRA/Arrays
+// assumes that fml is a sum of products
 void mul_and_simp(expr_ref &fml, rational num) {
     ast_manager &m = fml.get_manager();
     array_util m_array(m);
