@@ -1,3 +1,22 @@
+/**++
+Copyright (c) 2020 Arie Gurfinkel
+
+Module Name:
+
+    spacer_convex_closure.cpp
+
+Abstract:
+
+   Compute convex closure of polyhedra
+
+Author:
+
+    Hari Govind
+    Arie Gurfinkel
+
+Notes:
+
+--*/
 #include "ast/arith_decl_plugin.h"
 #include "ast/ast.h"
 #include "ast/ast_pp.h"
@@ -302,11 +321,11 @@ void mul_if_not_one(rational coeff, expr *e, expr_ref &res) {
         res = expr_ref(e, m);
     else if (m_arith.is_arith_expr(e) || m_arith.is_int(e) ||
              m_arith.is_real(e))
-      res = m_arith.mk_mul(m_arith.mk_numeral(coeff, coeff.is_int()), e);
+        res = m_arith.mk_mul(m_arith.mk_numeral(coeff, coeff.is_int()), e);
     else {
-      SASSERT(m_bv.is_bv(e));
-      unsigned sz = m_bv.get_bv_size(e);
-      res = m_bv.mk_bv_mul(m_bv.mk_numeral(coeff, sz), e);
+        SASSERT(m_bv.is_bv(e));
+        unsigned sz = m_bv.get_bv_size(e);
+        res = m_bv.mk_bv_mul(m_bv.mk_numeral(coeff, sz), e);
     }
 }
 namespace extract_nums_ns {
