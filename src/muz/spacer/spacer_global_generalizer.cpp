@@ -132,13 +132,6 @@ struct to_real_rw_cfg : public default_rewriter_cfg {
     arith_util m_arith;
     array_util m_array;
     to_real_rw_cfg(ast_manager &m) : m(m), m_arith(m), m_array(m) {}
-    bool reduce_var(var *v, expr_ref &result, proof_ref &result_proof) {
-        if (m_arith.is_int(v))
-            result = m_arith.mk_to_real(v);
-        else
-            result = v;
-        return true;
-    }
 
     br_status reduce_app(func_decl *f, unsigned num, expr *const *args,
                          expr_ref &result, proof_ref &result_pr) {
