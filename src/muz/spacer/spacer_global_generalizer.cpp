@@ -16,14 +16,16 @@ Author:
 
 
 --*/
-#include "muz/spacer/spacer_context.h"
+#include "muz/spacer/spacer_global_generalizer.h"
 #include "ast/arith_decl_plugin.h"
 #include "ast/ast_util.h"
 #include "ast/for_each_expr.h"
 #include "ast/rewriter/expr_safe_replace.h"
+#include "ast/rewriter/rewriter.h"
+#include "ast/rewriter/rewriter_def.h"
+#include "ast/rewriter/th_rewriter.h"
 #include "model/model2expr.h"
 #include "muz/spacer/spacer_context.h"
-#include "muz/spacer/spacer_global_generalizer.h"
 #include "muz/spacer/spacer_manager.h"
 #include "muz/spacer/spacer_matrix.h"
 #include "muz/spacer/spacer_util.h"
@@ -125,39 +127,65 @@ void lemma_global_generalizer::operator()(lemma_ref &lemma) {
     core(lemma);
 }
 
-/// Coerce all uninterpreted constants in \p fml to real
-static void to_real(expr_ref &fml) {
-    ast_manager &m = fml.get_manager();
-    arith_util arith(m);
-    array_util array(m);
-    if (arith.is_numeral(fml) || arith.is_to_real(fml)) return;
-    if (is_uninterp_const(fml) && arith.is_int(fml)) {
-        fml = arith.mk_to_real(fml);
-        return;
+struct to_real_rw_cfg : public default_rewriter_cfg {
+    ast_manager &m;
+    arith_util m_arith;
+    array_util m_array;
+    to_real_rw_cfg(ast_manager &m) : m(m), m_arith(m), m_array(m) {}
+    bool reduce_var(var *v, expr_ref &result, proof_ref &result_proof) {
+        if (m_arith.is_int(v))
+            result = m_arith.mk_to_real(v);
+        else
+            result = v;
+        return true;
     }
-    if (arith.is_arith_expr(fml)) {
-        app *fml_app = to_app(fml);
-        unsigned N = fml_app->get_num_args();
-        expr_ref_vector nw_args(m);
-        expr_ref chld(m);
-        for (unsigned i = 0; i < N; i++) {
-            chld = fml_app->get_arg(i);
-            to_real(chld);
-            nw_args.push_back(chld);
+
+    br_status reduce_app(func_decl *f, unsigned num, expr *const *args,
+                         expr_ref &result, proof_ref &result_pr) {
+        app *fml = nullptr;
+        if (num > 0)
+            // this call to mk_app creates a function whose domain has the same
+            // sort as args
+            fml = m.mk_app(f->get_family_id(), f->get_decl_kind(), num, args);
+        else
+            // create const using same f
+            fml = m.mk_const(f);
+        if (is_uninterp_const(fml)) {
+            if (m_arith.is_int(fml))
+                result = m_arith.mk_to_real(fml);
+            else
+                result = fml;
+            return BR_DONE;
         }
-        fml = m.mk_app(fml_app->get_family_id(), fml_app->get_decl_kind(),
-                       nw_args.size(), nw_args.c_ptr());
+
+        if (m_arith.is_to_real(fml) && m_arith.is_to_real(args[0])) {
+            result = args[0];
+            return BR_DONE;
+        }
+
+        if (m_array.is_select(fml)) {
+            expr_ref_vector new_args(m);
+            expr_ref ind(m);
+            if (!(m_arith.is_int_real(args[1]))) {
+                TRACE("global",
+                      tout << "Found array with non arith index value\n";);
+                NOT_IMPLEMENTED_YET();
+                return BR_FAILED;
+            }
+            if (m_arith.is_real(args[1]))
+                ind = m_arith.mk_to_int(args[1]);
+            else
+                ind = args[1];
+            new_args.push_back(args[0]);
+            new_args.push_back(ind);
+            result = m_array.mk_select(new_args.size(), new_args.c_ptr());
+            return BR_DONE;
+        }
+
+        result = fml;
+        return BR_DONE;
     }
-    if (array.is_select(fml)) {
-        app *fml_app = to_app(fml);
-        expr_ref_vector nw_args(m);
-        expr_ref ind(m);
-        ind = arith.mk_to_real(fml_app->get_arg(1));
-        nw_args.push_back(fml_app->get_arg(0));
-        nw_args.push_back(arith.mk_to_int(ind));
-        fml = array.mk_select(nw_args.size(), nw_args.c_ptr());
-    }
-}
+};
 
 // get lcm of all the denominators of all the rational values in e
 static rational get_lcm(expr *e, ast_manager &m) {
@@ -262,24 +290,20 @@ static void normalize(expr_ref &fml) {
     fml = mk_and(rw_fml);
 }
 
-/// Coerce all uninterpreted constants in \p fml to real
-static void to_real(const expr_ref_vector &fml, expr_ref &nw_fml) {
+/// wrap integer uninterpreted constants in \p fml with (to_real)
+/// only supports LIA/LRA. Partial support for Arrays
+/// (to_real i:Int) --> (to_real i) where i is a constant/var
+/// (to_real (select A i:Int)) --> (select A (to_int (to_real i)))
+/// (to_real (op (a0:Int) ... (aN:Int))) --> (op (to_real a0) ... (to_real aN))
+/// where op is an arithmetic operation
+/// (to_real (f a)) --> throw exception
+/// (to_real (store A i:Int x:Int)) --> throw exception
+static void to_real(expr_ref &fml) {
     ast_manager &m = fml.get_manager();
-    arith_util arith(m);
-    expr_ref lhs(m), rhs(m);
-    expr_ref_vector rw_fml(m);
-    for (auto &e : fml) {
-        if (!(m.is_eq(e) || arith.is_arith_expr(e))) continue;
-        app *e_app = to_app(e);
-        SASSERT(to_app(e)->get_num_args() == 2);
-        lhs = e_app->get_arg(0);
-        rhs = e_app->get_arg(1);
-        to_real(rhs);
-        to_real(lhs);
-        rw_fml.push_back(to_expr(m.mk_app(e_app->get_family_id(),
-                                          e_app->get_decl_kind(), lhs, rhs)));
-    }
-    nw_fml = mk_and(rw_fml);
+    to_real_rw_cfg rw_cfg(m);
+    rewriter_tpl<to_real_rw_cfg> rw(m, false, rw_cfg);
+    TRACE("subsume", tout << "to real " << fml << "\n";);
+    rw(fml.get(), fml);
 }
 
 /// Create new vars to compute convex cls
@@ -442,15 +466,10 @@ bool lemma_global_generalizer::subsume(lemma_cluster lc, lemma_ref &lemma,
     var_to_const(mk_and(cls), cvx_pattern);
 
     if (!no_new_vars) {
-        expr_ref_vector temp(m);
-        flatten_and(cvx_pattern, temp);
-        cvx_pattern.reset();
-        to_real(temp, cvx_pattern);
+        to_real(cvx_pattern);
         TRACE("subsume_verb",
               tout << "To real produced " << cvx_pattern << "\n";);
         rewrite_fresh_cnsts();
-        TRACE("subsume_verb", tout << "Rewrote " << mk_pp(mk_and(temp), m)
-                                   << " into " << cvx_pattern << "\n";);
     }
 
     model_ref mdl;
@@ -697,3 +716,4 @@ void lemma_global_generalizer::collect_statistics(statistics &st) const {
 }
 
 } // namespace spacer
+template class rewriter_tpl<spacer::to_real_rw_cfg>;
