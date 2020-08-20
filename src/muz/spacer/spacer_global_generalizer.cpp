@@ -147,15 +147,14 @@ struct to_real_rw_cfg : public default_rewriter_cfg {
             // this call to mk_app creates a function whose domain has the same
             // sort as args
             fml = m.mk_app(f->get_family_id(), f->get_decl_kind(), num, args);
-        else
+        else {
             // create const using same f
             fml = m.mk_const(f);
-        if (is_uninterp_const(fml)) {
-            if (m_arith.is_int(fml))
+            if (is_uninterp_const(fml) && m_arith.is_int(fml)) {
                 result = m_arith.mk_to_real(fml);
-            else
-                result = fml;
-            return BR_DONE;
+                return BR_DONE;
+            }
+            return BR_FAILED;
         }
 
         if (m_arith.is_to_real(fml) && m_arith.is_to_real(args[0])) {
@@ -181,9 +180,7 @@ struct to_real_rw_cfg : public default_rewriter_cfg {
             result = m_array.mk_select(new_args.size(), new_args.c_ptr());
             return BR_DONE;
         }
-
-        result = fml;
-        return BR_DONE;
+        return BR_FAILED;
     }
 };
 
