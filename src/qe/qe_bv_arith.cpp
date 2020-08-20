@@ -322,6 +322,7 @@ class rw_rule {
 
   public:
     rw_rule(ast_manager &m) : m(m), m_var(m), m_bv(m) {}
+    virtual ~rw_rule() = default;
     void reset(model *mdl, expr *x) {
         m_var = x;
         m_mdl = mdl;
