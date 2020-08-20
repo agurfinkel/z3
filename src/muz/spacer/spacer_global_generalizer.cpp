@@ -164,19 +164,21 @@ struct to_real_rw_cfg : public default_rewriter_cfg {
 
         if (m_array.is_select(fml)) {
             expr_ref_vector new_args(m);
-            expr_ref ind(m);
-            if (!(m_arith.is_int_real(args[1]))) {
-                TRACE("global",
-                      tout << "Found array with non arith index value\n";);
-                NOT_IMPLEMENTED_YET();
-                return BR_FAILED;
-            }
-            if (m_arith.is_real(args[1]))
-                ind = m_arith.mk_to_int(args[1]);
-            else
-                ind = args[1];
             new_args.push_back(args[0]);
-            new_args.push_back(ind);
+            expr_ref ind(m);
+            for (unsigned i = 1; i < num; i++) {
+                if (!(m_arith.is_int_real(args[i]))) {
+                    TRACE("global",
+                          tout << "Found array with non arith index value\n";);
+                    NOT_IMPLEMENTED_YET();
+                    return BR_FAILED;
+                }
+                if (m_arith.is_real(args[i]))
+                    ind = m_arith.mk_to_int(args[i]);
+                else
+                    ind = args[i];
+                new_args.push_back(ind);
+            }
             result = m_array.mk_select(new_args.size(), new_args.c_ptr());
             return BR_DONE;
         }
