@@ -196,48 +196,59 @@ static rational get_lcm(expr *e, ast_manager &m) {
     return g.m_val;
 }
 
-/// Converts all numerals and uninterpreted constants in fml to int
-/// requires that \p fml is in sop form
-static void to_int(expr_ref &fml) {
+struct strip_to_real_rw_cfg : public default_rewriter_cfg {
+    ast_manager &m;
+    arith_util m_arith;
+    array_util m_array;
+    strip_to_real_rw_cfg(ast_manager &m) : m(m), m_arith(m), m_array(m) {}
+    br_status reduce_app(func_decl *f, unsigned num, expr *const *args,
+                         expr_ref &result, proof_ref &result_pr) {
+        app *fml = nullptr;
+        if (num > 0)
+            // this call to mk_app creates a function whose domain has the same
+            // sort as args
+            fml = m.mk_app(f->get_family_id(), f->get_decl_kind(), num, args);
+        else
+            // create const using same f
+            fml = m.mk_const(f);
+        if (m_arith.is_to_real(fml)) {
+            result = fml;
+            return BR_DONE;
+        }
+        bool is_int;
+        rational r;
+        if (m_arith.is_numeral(fml, r, is_int) && !is_int) {
+            TRACE("global",
+                  tout << "found a rational when expecting an int\n";);
+            UNREACHABLE();
+            return BR_FAILED;
+        }
+        if (m_arith.is_to_int(fml) && m_arith.is_int(args[0])) {
+            result = args[0];
+            return BR_REWRITE_FULL;
+        }
+        result = fml;
+        return BR_DONE;
+    }
+};
+
+/// Removes all occurrences of (to_real t) from fml
+///
+/// Applies the following rewrites
+/// v:Real --> mk_int(v) where v is a real value
+/// (to_real v:Int) --> v
+/// (to_int v) --> (strip_to_real v)
+/// (select A (to_int (to_real i))) --> (select A i)
+/// (op (to_real a0) ... (to_real aN)) --> (op a0 ... aN) where op is an
+/// arithmetic operation
+/// (f a) --> throw exception
+/// (store A i:Int x:Int) --> throw exception
+static void strip_to_real(expr_ref &fml) {
     ast_manager &m = fml.get_manager();
-    arith_util arith(m);
-    TRACE("subsume_verb", tout << "to int " << mk_pp(fml, m) << "\n";);
-    if (arith.is_to_real(fml)) {
-        fml = to_app(fml)->get_arg(0);
-        TRACE("subsume_dbg_verb",
-              tout << "to int finished " << mk_pp(fml, m) << "\n";);
-        return;
-    }
-    if (arith.is_to_int(fml)) {
-        expr_ref res(m);
-        fml = to_app(fml)->get_arg(0);
-        to_int(fml);
-        return;
-    }
-    // Don't normalize constants.
-    if (is_uninterp_const(fml)) return;
-
-    rational val;
-    if (arith.is_numeral(fml, val)) {
-        // If its not an integer, try constructing int from it
-        fml = arith.mk_int(val);
-
-        TRACE("subsume_verb",
-              tout << "to int finished " << mk_pp(fml, m) << "\n";);
-        return;
-    }
-    app *fml_app = to_app(fml);
-    unsigned N = fml_app->get_num_args();
-    expr_ref_vector nw_args(m);
-    for (unsigned i = 0; i < N; i++) {
-        expr_ref chld(fml_app->get_arg(i), m);
-        to_int(chld);
-        nw_args.push_back(chld);
-    }
-    fml = m.mk_app(fml_app->get_family_id(), fml_app->get_decl_kind(),
-                   nw_args.size(), nw_args.c_ptr());
-
-    TRACE("subsume_verb", tout << "to int finished " << mk_pp(fml, m) << "\n";);
+    strip_to_real_rw_cfg rw_cfg(m);
+    rewriter_tpl<strip_to_real_rw_cfg> rw(m, false, rw_cfg);
+    rw(fml.get(), fml);
+    TRACE("subsume", tout << "after stripping to_real " << fml << "\n";);
 }
 
 /// Normalize all fractional constants in \p fml to integers
@@ -281,8 +292,8 @@ static void normalize(expr_ref &fml) {
                                        << mk_pp(lhs, m) << " and rhs to "
                                        << mk_pp(rhs, m) << "\n";);
         }
-        to_int(lhs);
-        to_int(rhs);
+        strip_to_real(lhs);
+        strip_to_real(rhs);
         app *norm_e =
             m.mk_app(e_app->get_family_id(), e_app->get_decl_kind(), lhs, rhs);
         rw_fml.push_back(to_expr(norm_e));
@@ -302,8 +313,8 @@ static void to_real(expr_ref &fml) {
     ast_manager &m = fml.get_manager();
     to_real_rw_cfg rw_cfg(m);
     rewriter_tpl<to_real_rw_cfg> rw(m, false, rw_cfg);
-    TRACE("subsume", tout << "to real " << fml << "\n";);
     rw(fml.get(), fml);
+    TRACE("subsume", tout << "to real " << fml << "\n";);
 }
 
 /// Create new vars to compute convex cls
