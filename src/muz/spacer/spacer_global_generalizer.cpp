@@ -259,7 +259,7 @@ static void to_real_expr(expr_ref &fml, unsigned depth = 3) {
     app *fml_app = to_app(fml);
     expr *const *args = fml_app->get_args();
     unsigned num = fml_app->get_num_args();
-    expr_ref_vector new_args(m);
+    expr_ref_buffer new_args(m);
     expr_ref child(m);
 
     // handle selects separately because sort of index needs to be preserved
