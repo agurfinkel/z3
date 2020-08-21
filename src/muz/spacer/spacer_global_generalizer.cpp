@@ -595,14 +595,13 @@ bool lemma_global_generalizer::core(lemma_ref &lemma) {
 
     const expr_ref &pattern = lc.get_pattern();
 
-    TRACE(
-        "global",
-        tout << "Start global generalization of lemma : " << lemma->get_cube()
-             << "\n Discovered cluster: " << pattern << "\n and lemmas ";
-        for (const lemma_info &lemma
-             : lc.get_lemmas()) {
-            tout << "\n \t" << lemma.get_lemma()->get_cube();
-        });
+    TRACE("global",
+          tout << "Start global generalization of lemma : " << lemma->get_cube()
+               << "\n Discovered cluster: " << pattern << "\n and lemmas ";
+          for (const lemma_info &lemma
+               : lc.get_lemmas()) {
+              tout << "\n \t" << lemma.get_lemma()->get_cube();
+          });
     if (has_nonlinear_var_mul(pattern, m)) {
         m_st.m_num_non_lin++;
         if (pt_cls->get_gas() == 0) {
