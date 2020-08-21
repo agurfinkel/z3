@@ -620,18 +620,30 @@ bool lemma_global_generalizer::do_conjecture(pob_ref n, expr_ref lit,
 }
 
 // decide global guidance based on lemma
-bool lemma_global_generalizer::core(lemma_ref &lemma) {
+void lemma_global_generalizer::core(lemma_ref &lemma) {
     lemma_cluster *pt_cls = (&*lemma->get_pob())->pt().clstr_match(lemma);
-    if (pt_cls == nullptr) return false;
+    /// Lemma does not belong to any cluster. return
+    if (pt_cls == nullptr) return;
 
     // the lemma has not been added to the cluster yet since the lemma has not
     // been added to spacer yet. So we create a new, local, cluster and add the
     // lemma to it.
     lemma_cluster lc(*pt_cls);
-
     lc.add_lemma(lemma, true);
 
     const expr_ref &pattern = lc.get_pattern();
+    pob_ref n = lemma->get_pob();
+    expr_ref lit(m);
+
+    // if the cluster does not have enough gas, stop local generalization and return
+    if (pt_cls->get_gas() == 0) {
+        m_st.m_num_cls_ofg++;
+        n->stop_local_gen();
+        TRACE("global", tout << "stop local generalization on pob "
+                             << mk_pp(n->post(), m) << " id is "
+                             << n->post()->get_id() << "\n";);
+        return;
+    }
 
     TRACE("global",
           tout << "Start global generalization of lemma : " << lemma->get_cube()
@@ -644,68 +656,52 @@ bool lemma_global_generalizer::core(lemma_ref &lemma) {
     // Concretize
     if (has_nonlinear_var_mul(pattern, m)) {
         m_st.m_num_non_lin++;
-        if (pt_cls->get_gas() == 0) {
-            m_st.m_num_cls_ofg++;
-            return false;
-        }
+
         TRACE("global",
               tout << "Found non linear pattern. Marked to concretize \n";);
-        lemma->get_pob()->set_concr_pat(pattern);
-        lemma->get_pob()->set_concretize();
-        lemma->get_pob()->set_gas(lc.get_pob_gas());
+        // not constructing the concrete pob here since we need a model for n->post()
+        n->set_concr_pat(pattern);
+        n->set_concretize();
+        n->set_gas(pt_cls->get_pob_gas());
         pt_cls->dec_gas();
-        return false;
+        return;
     }
 
     //Conjecture
-    expr_ref lit(m);
     if (should_conjecture(pattern, lit)) {
         // Create a conjecture by dropping literal from pob.
-        pob_ref n = lemma->get_pob();
         TRACE("global", tout << "Conjecture with pattern " << mk_pp(pattern, m)
                              << " with gas " << pt_cls->get_gas() << "\n";);
-        if (pt_cls->get_gas() == 0) {
-            m_st.m_num_cls_ofg++;
-            n->stop_local_gen();
-            TRACE("global", tout << "stop local generalization on pob " << mk_pp(n->post(), m)
-                                 << " id is " << n->post()->get_id() << "\n";);
-        } else {
-            unsigned gas = pt_cls->get_pob_gas();
-            unsigned lvl = pt_cls->get_min_lvl() + 1;
-            if (do_conjecture(n, lit, lvl, gas)) {
-                // decrease the number of times this cluster is going to be used for conjecturing
-                pt_cls->dec_gas();
-            }
+        unsigned gas = pt_cls->get_pob_gas();
+        unsigned lvl = pt_cls->get_min_lvl() + 1;
+        if (do_conjecture(n, lit, lvl, gas)) {
+            // decrease the number of times this cluster is going to be used for conjecturing
+            pt_cls->dec_gas();
+            return;
         }
+        // if conjecture failed, try subsume
     }
 
     // if subsumption removed all the other lemmas, there is nothing to
     // generalize
-    if (lc.get_size() < 2) return false;
+    if (lc.get_size() < 2) return;
 
     // Subsume
     expr_ref_vector subsume_gen(m);
     if (subsume(lc, lemma, subsume_gen)) {
-        pob_ref pob = lemma->get_pob();
-        pob->set_subsume_pob(subsume_gen);
-        pob->set_subsume_bindings(lemma->get_bindings());
-        pob->set_may_pob_lvl(pt_cls->get_min_lvl() + 1);
-        pob->stop_local_gen();
-        pob->set_gas(pt_cls->get_pob_gas() + 1);
+        n->set_subsume_pob(subsume_gen);
+        n->set_subsume_bindings(lemma->get_bindings());
+        n->set_may_pob_lvl(pt_cls->get_min_lvl() + 1);
+        n->set_gas(pt_cls->get_pob_gas() + 1);
+        n->set_expand_bnd();
         TRACE("global", tout << "subsume pob " << mk_and(subsume_gen)
                              << " at level " << pt_cls->get_min_lvl() + 1
-                             << " set on pob " << mk_pp(pob->post(), m)
+                             << " set on pob " << mk_pp(n->post(), m)
                              << "\n";);
-        pt_cls->dec_gas();
-        if (pt_cls->get_gas() == 0) {
-            m_st.m_num_cls_ofg++;
-        }
-        // expand bnd if there is enough gas in the cluster
-        else {
-            pob->set_expand_bnd();
-        }
+        //This decision is hard to explain. I believe this helped in solving an instance
+        n->stop_local_gen();
     }
-    return false;
+    return;
 }
 
 /// Replace bound vars in \p fml with uninterpreted constants

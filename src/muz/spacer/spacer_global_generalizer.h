@@ -73,7 +73,7 @@ class lemma_global_generalizer : public lemma_generalizer {
     bool skolemize_sel_vars(expr_ref &f, app_ref_vector &cnsts);
 
     /// Decide global guidance based on lemma
-    bool core(lemma_ref &lemma);
+    void core(lemma_ref &lemma);
 
     /// Create new vars to compute convex cls
     void add_dim_vars(const lemma_cluster &lc);
