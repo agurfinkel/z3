@@ -21,9 +21,6 @@ Author:
 #include "ast/ast_util.h"
 #include "ast/for_each_expr.h"
 #include "ast/rewriter/expr_safe_replace.h"
-#include "ast/rewriter/rewriter.h"
-#include "ast/rewriter/rewriter_def.h"
-#include "ast/rewriter/th_rewriter.h"
 #include "model/model2expr.h"
 #include "muz/spacer/spacer_context.h"
 #include "muz/spacer/spacer_manager.h"
@@ -127,58 +124,6 @@ void lemma_global_generalizer::operator()(lemma_ref &lemma) {
     core(lemma);
 }
 
-struct to_real_rw_cfg : public default_rewriter_cfg {
-    ast_manager &m;
-    arith_util m_arith;
-    array_util m_array;
-    to_real_rw_cfg(ast_manager &m) : m(m), m_arith(m), m_array(m) {}
-
-    br_status reduce_app(func_decl *f, unsigned num, expr *const *args,
-                         expr_ref &result, proof_ref &result_pr) {
-        app *fml = nullptr;
-        if (num > 0)
-            // this call to mk_app creates a function whose domain has the same
-            // sort as args
-            fml = m.mk_app(f->get_family_id(), f->get_decl_kind(), num, args);
-        else {
-            // create const using same f
-            fml = m.mk_const(f);
-            if (is_uninterp_const(fml) && m_arith.is_int(fml)) {
-                result = m_arith.mk_to_real(fml);
-                return BR_DONE;
-            }
-            return BR_FAILED;
-        }
-
-        if (m_arith.is_to_real(fml) && m_arith.is_to_real(args[0])) {
-            result = args[0];
-            return BR_DONE;
-        }
-
-        if (m_array.is_select(fml)) {
-            expr_ref_vector new_args(m);
-            new_args.push_back(args[0]);
-            expr_ref ind(m);
-            for (unsigned i = 1; i < num; i++) {
-                if (!(m_arith.is_int_real(args[i]))) {
-                    TRACE("global",
-                          tout << "Found array with non arith index value\n";);
-                    NOT_IMPLEMENTED_YET();
-                    return BR_FAILED;
-                }
-                if (m_arith.is_real(args[i]))
-                    ind = m_arith.mk_to_int(args[i]);
-                else
-                    ind = args[i];
-                new_args.push_back(ind);
-            }
-            result = m_array.mk_select(new_args.size(), new_args.c_ptr());
-            return BR_DONE;
-        }
-        return BR_FAILED;
-    }
-};
-
 // get lcm of all the denominators of all the rational values in e
 static rational get_lcm(expr *e, ast_manager &m) {
     compute_lcm g(m);
@@ -188,125 +133,185 @@ static rational get_lcm(expr *e, ast_manager &m) {
     return g.m_val;
 }
 
-struct strip_to_real_rw_cfg : public default_rewriter_cfg {
-    ast_manager &m;
-    arith_util m_arith;
-    array_util m_array;
-    strip_to_real_rw_cfg(ast_manager &m) : m(m), m_arith(m), m_array(m) {}
-    br_status reduce_app(func_decl *f, unsigned num, expr *const *args,
-                         expr_ref &result, proof_ref &result_pr) {
-        app *fml = nullptr;
-        if (num > 0)
-            // this call to mk_app creates a function whose domain has the same
-            // sort as args
-            fml = m.mk_app(f->get_family_id(), f->get_decl_kind(), num, args);
-        else
-            // create const using same f
-            fml = m.mk_const(f);
-        if (m_arith.is_to_real(fml)) {
-            result = fml;
-            return BR_DONE;
-        }
-        bool is_int;
-        rational r;
-        if (m_arith.is_numeral(fml, r, is_int) && !is_int) {
-            TRACE("global",
-                  tout << "found a rational when expecting an int\n";);
-            UNREACHABLE();
-            return BR_FAILED;
-        }
-        if (m_arith.is_to_int(fml) && m_arith.is_int(args[0])) {
-            result = args[0];
-            return BR_REWRITE_FULL;
-        }
-        result = fml;
-        return BR_DONE;
-    }
-};
-
-/// Removes all occurrences of (to_real t) from fml
+/// Removes all occurrences of (to_real t) from \p fml where t is a constant
 ///
-/// Applies the following rewrites
-/// v:Real --> mk_int(v) where v is a real value
-/// (to_real v:Int) --> v
-/// (to_int v) --> (strip_to_real v)
-/// (select A (to_int (to_real i))) --> (select A i)
+/// Applies the following rewrites upto depth \p depth
+/// v:Real                             --> mk_int(v) where v is a real value
+/// (to_real v:Int)                    --> v
+/// (to_int v)                         --> (strip_to_real v)
+/// (select A (to_int (to_real i)))    --> (select A i)
 /// (op (to_real a0) ... (to_real aN)) --> (op a0 ... aN) where op is an
-/// arithmetic operation
-/// (f a) --> throw exception
-/// (store A i:Int x:Int) --> throw exception
-static void strip_to_real(expr_ref &fml) {
+///                                         arithmetic operation
+/// on all other formulas, do nothing
+/// NOTE: cannot use a rewriter since we change the sort of fml
+static void strip_to_real(expr_ref &fml, unsigned depth = 3) {
     ast_manager &m = fml.get_manager();
-    strip_to_real_rw_cfg rw_cfg(m);
-    rewriter_tpl<strip_to_real_rw_cfg> rw(m, false, rw_cfg);
-    rw(fml.get(), fml);
-    TRACE("subsume", tout << "after stripping to_real " << fml << "\n";);
-}
-
-/// Normalize all fractional constants in \p fml to integers
-static void normalize(expr_ref &fml) {
-    ast_manager m = fml.get_manager();
     arith_util arith(m);
-    expr_ref_vector fml_vec(m), rw_fml(m);
-    flatten_and(fml.get(), fml_vec);
-    expr *s, *t;
-    for (expr *e : fml_vec) {
-        if (!(arith.is_arith_expr(e) || m.is_eq(e))) continue;
-        app *e_app = to_app(e);
-        SASSERT(e_app->get_num_args() == 2);
-        expr_ref lhs(e_app->get_arg(0), m);
-        expr_ref rhs(e_app->get_arg(1), m);
-        // handle mod
-        if (arith.is_mod(lhs, s, t)) {
-            rational val;
-            bool is_int = false;
-            // if e is mod, it should already be in linear integer arithmetic
-            if (!(arith.is_numeral(t, val, is_int) && is_int &&
-                  get_lcm(s, m) == rational::one()))
-                NOT_IMPLEMENTED_YET();
-            // mod cannot be equal to a non-integer
-            SASSERT(arith.is_numeral(rhs, val, is_int) && is_int);
-            // since e is already in linear integer arithmetic, it is already
-            // normalized
-            rw_fml.push_back(e);
-            continue;
-        }
-
-        // make sure that no child is a mod expression
-        SASSERT(!contains_mod(lhs));
-        SASSERT(!contains_mod(rhs));
-        rational lcm = get_lcm(e, m);
-        SASSERT(lcm != rational::zero());
-        if (lcm != 1) {
-            mul_by_rat(lhs, lcm);
-            mul_by_rat(rhs, lcm);
-            TRACE("subsume_verb", tout << "mul and simp reduced lhs to "
-                                       << mk_pp(lhs, m) << " and rhs to "
-                                       << mk_pp(rhs, m) << "\n";);
-        }
-        strip_to_real(lhs);
-        strip_to_real(rhs);
-        app *norm_e =
-            m.mk_app(e_app->get_family_id(), e_app->get_decl_kind(), lhs, rhs);
-        rw_fml.push_back(to_expr(norm_e));
+    rational r;
+    if (arith.is_numeral(fml, r)) {
+        SASSERT(denominator(r).is_one());
+        fml = arith.mk_int(r);
+        return;
     }
-    fml = mk_and(rw_fml);
+    if (depth == 0) { return; }
+    if (arith.is_to_real(fml)) {
+        fml = to_app(fml)->get_arg(0);
+        return;
+    }
+    if (arith.is_to_int(fml) && arith.is_to_real(to_app(fml)->get_arg(0))) {
+        expr *arg = to_app(fml)->get_arg(0);
+        fml = to_app(arg)->get_arg(0);
+        return;
+    }
+    SASSERT(is_app(fml));
+    app *f_app = to_app(fml);
+    unsigned num = f_app->get_num_args();
+    expr_ref_buffer new_args(m);
+    expr_ref child(m);
+    for (unsigned i = 0; i < num; i++) {
+        child = f_app->get_arg(i);
+        strip_to_real(child, depth - 1);
+        new_args.push_back(child);
+    }
+    fml = m.mk_app(f_app->get_family_id(), f_app->get_decl_kind(),
+                   new_args.size(), new_args.c_ptr());
+    return;
 }
 
-/// wrap integer uninterpreted constants in \p fml with (to_real)
-/// only supports LIA/LRA. Partial support for Arrays
-/// (to_real i:Int) --> (to_real i) where i is a constant/var
-/// (to_real (select A i:Int)) --> (select A (to_int (to_real i)))
-/// (to_real (op (a0:Int) ... (aN:Int))) --> (op (to_real a0) ... (to_real aN))
-/// where op is an arithmetic operation
-/// (to_real (f a)) --> throw exception
-/// (to_real (store A i:Int x:Int)) --> throw exception
+/// Converts real subexpressions in \p fml into Int expressions
+///
+/// Works on arithmetic (in)equalities
+/// if fml contains a mod, fml is not normalized
+/// otherwise, lcm of fml is computed and lcm * fml is computed
+static void to_int_expr(expr_ref &fml) {
+    ast_manager &m = fml.get_manager();
+    arith_util arith(m);
+    if (!(arith.is_arith_expr(fml) || m.is_eq(fml))) return;
+    app *fml_app = to_app(fml);
+    SASSERT(fml_app->get_num_args() == 2);
+    expr_ref lhs(fml_app->get_arg(0), m);
+    expr_ref rhs(fml_app->get_arg(1), m);
+    // handle mod
+    if (contains_mod(lhs) || contains_mod(rhs)) {
+        SASSERT(!(contains_real(lhs) || contains_real(rhs)));
+        return;
+    }
+    rational lcm = get_lcm(fml, m);
+    SASSERT(lcm != rational::zero());
+    mul_by_rat(lhs, lcm);
+    mul_by_rat(rhs, lcm);
+    strip_to_real(lhs);
+    strip_to_real(rhs);
+    fml =
+        m.mk_app(fml_app->get_family_id(), fml_app->get_decl_kind(), lhs, rhs);
+}
+
+/// Convert all fractional constants in \p fml to integers
+static void to_int(expr_ref &fml) {
+    ast_manager &m = fml.get_manager();
+    arith_util arith(m);
+    expr_ref_vector fml_vec(m);
+    expr_ref_buffer new_fml(m);
+    expr_ref new_lit(m);
+    flatten_and(fml, fml_vec);
+    for (auto *lit : fml_vec) {
+        new_lit = lit;
+        to_int_expr(new_lit);
+        new_fml.push_back(new_lit);
+    }
+    fml = m.mk_and(new_fml);
+}
+
+/// Wrap integer uninterpreted constants in expression \p fml with (to_real)
+///
+/// only supports arithmetic expressions
+/// Applies the following rewrite rules upto depth \p depth
+/// (to_real_expr c)                           --> (c:Real) where c is a numeral
+/// (to_real_expr i:Int)                       --> (to_real i) where i is a
+/// constant/var (to_real_expr (select A i:Int))            --> (select A
+/// (to_int (to_real i))) (to_real_expr (op (a0:Int) ... (aN:Int)))  --> (op
+/// (to_real a0) ... (to_real aN))
+///                                           where op is an arithmetic
+///                                           operation
+/// on all other formulas, do nothing
+/// NOTE: cannot use a rewriter since we change the sort of fml
+static void to_real_expr(expr_ref &fml, unsigned depth = 3) {
+    ast_manager &m = fml.get_manager();
+    arith_util arith(m);
+    array_util array(m);
+    if (!arith.is_int_real(fml)) return;
+    rational r;
+    if (arith.is_numeral(fml, r)) {
+        fml = arith.mk_real(r);
+        return;
+    }
+    if (is_uninterp(fml)) {
+        if (arith.is_int(fml)) fml = arith.mk_to_real(fml);
+        return;
+    }
+    if (arith.is_to_real(fml)) {
+        expr *arg = to_app(fml)->get_arg(0);
+        if (arith.is_numeral(arg, r)) fml = arith.mk_real(r);
+        return;
+    }
+    if (depth == 0) return;
+    SASSERT(is_app(fml));
+    app *fml_app = to_app(fml);
+    expr *const *args = fml_app->get_args();
+    unsigned num = fml_app->get_num_args();
+    expr_ref_vector new_args(m);
+    expr_ref child(m);
+
+    // handle selects separately because sort of index needs to be preserved
+    if (array.is_select(fml)) {
+        new_args.push_back(args[0]);
+        for (unsigned i = 1; i < num; i++) {
+            SASSERT(arith.is_int(args[i]));
+            child = arith.mk_to_real(args[i]);
+            child = arith.mk_to_int(child);
+            new_args.push_back(child);
+        }
+    } else {
+        expr_ref child(m);
+        for (unsigned i = 0; i < num; i++) {
+            child = args[i];
+            to_real_expr(child, depth - 1);
+            new_args.push_back(child);
+        }
+    }
+    fml = m.mk_app(fml_app->get_family_id(), fml_app->get_decl_kind(),
+                   new_args.size(), new_args.c_ptr());
+    return;
+}
+
+/// Wrap integer uninterpreted constants in conjunction \p fml with (to_real)
 static void to_real(expr_ref &fml) {
     ast_manager &m = fml.get_manager();
-    to_real_rw_cfg rw_cfg(m);
-    rewriter_tpl<to_real_rw_cfg> rw(m, false, rw_cfg);
-    rw(fml.get(), fml);
-    TRACE("subsume", tout << "to real " << fml << "\n";);
+    // cannot use an expr_ref_buffer since flatten_and operates on
+    // expr_ref_vector
+    expr_ref_vector fml_vec(m);
+    flatten_and(fml, fml_vec);
+    expr_ref_buffer new_args(m), new_fml(m);
+    expr_ref kid(m), new_f(m);
+    for (auto *f : fml_vec) {
+        new_args.reset();
+        app *f_app = to_app(f);
+        for (auto *arg : *f_app) {
+            kid = arg;
+            to_real_expr(kid);
+            new_args.push_back(kid);
+        }
+        // Uninterpreted functions cannot be created using the mk_app api that
+        // is being used.
+        if (is_uninterp(f)) new_f = f;
+        // use this api to change sorts in domain of f
+        else
+            new_f = m.mk_app(f_app->get_family_id(), f_app->get_decl_kind(),
+                             new_args.size(), new_args.c_ptr());
+        TRACE("subsume", tout << "to real op2 " << new_f << "\n";);
+        new_fml.push_back(new_f);
+    }
+    fml = m.mk_and(new_fml);
 }
 
 /// Create new vars to compute convex cls
@@ -510,7 +515,7 @@ bool lemma_global_generalizer::subsume(lemma_cluster lc, lemma_ref &lemma,
     TRACE("subsume_verb", tout << "Pattern after mbp of computing cvx cls: "
                                << cvx_pattern << "\n";);
 
-    if (!no_new_vars) { normalize(cvx_pattern); }
+    if (!no_new_vars) { to_int(cvx_pattern); }
     if (m_dim_frsh_cnsts.size() > 0 && !m_ctx.use_ground_pob()) {
         app_ref_vector &vars = lemma->get_bindings();
         // Try to skolemize
@@ -719,4 +724,3 @@ void lemma_global_generalizer::collect_statistics(statistics &st) const {
 }
 
 } // namespace spacer
-template class rewriter_tpl<spacer::to_real_rw_cfg>;

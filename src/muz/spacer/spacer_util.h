@@ -164,6 +164,9 @@ namespace spacer {
 
     bool contains_mod(expr_ref e);
 
+    //checks whether any sub expression of \p e is of sort Real
+    bool contains_real(expr_ref e);
+
     /// try to compute \p t and \p c such that (t <= c) ==> lit and c is a
     /// numeral
     bool under_approx_using_le(expr *lit, expr_ref &t, expr_ref &c);

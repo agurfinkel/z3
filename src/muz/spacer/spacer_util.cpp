@@ -1066,6 +1066,27 @@ namespace {
             return false;
         } catch (const contains_mod_ns::found &) { return true; }
     }
+
+    namespace contains_real_ns {
+    struct found {};
+    struct contains_real_proc {
+        ast_manager &m;
+        arith_util m_arith;
+        contains_real_proc(ast_manager &a_m) : m(a_m), m_arith(m) {}
+        void operator()(expr *n) const {}
+        void operator()(app *n) {
+            if (m_arith.is_real(n)) throw found();
+        }
+    };
+    } // namespace contains_real_ns
+    bool contains_real(expr_ref e) {
+        contains_real_ns::contains_real_proc t(e.get_manager());
+        try {
+            for_each_expr(t, e);
+            return false;
+        } catch (const contains_real_ns::found &) { return true; }
+    }
+
 } // namespace spacer
 template class rewriter_tpl<spacer::adhoc_rewriter_cfg>;
 template class rewriter_tpl<spacer::adhoc_rewriter_rpp>;
