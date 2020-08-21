@@ -178,24 +178,23 @@ static void strip_to_real(expr_ref &fml, unsigned depth = 3) {
     return;
 }
 
-/// Converts real subexpressions in \p fml into Int expressions
+/// Coerces a rational inequality to a semantically equivalent inequality with
+/// integer coefficients
 ///
 /// Works on arithmetic (in)equalities
 /// if fml contains a mod, fml is not normalized
 /// otherwise, lcm of fml is computed and lcm * fml is computed
-static void to_int_expr(expr_ref &fml) {
+static void to_int_term(expr_ref &fml) {
     ast_manager &m = fml.get_manager();
     arith_util arith(m);
+    if (!contains_real(fml)) return;
     if (!(arith.is_arith_expr(fml) || m.is_eq(fml))) return;
     app *fml_app = to_app(fml);
     SASSERT(fml_app->get_num_args() == 2);
     expr_ref lhs(fml_app->get_arg(0), m);
     expr_ref rhs(fml_app->get_arg(1), m);
-    // handle mod
-    if (contains_mod(lhs) || contains_mod(rhs)) {
-        SASSERT(!(contains_real(lhs) || contains_real(rhs)));
-        return;
-    }
+    // mod not supported
+    SASSERT(!(contains_mod(lhs) || contains_mod(rhs)));
     rational lcm = get_lcm(fml, m);
     SASSERT(lcm != rational::zero());
     mul_by_rat(lhs, lcm);
@@ -216,7 +215,7 @@ static void to_int(expr_ref &fml) {
     flatten_and(fml, fml_vec);
     for (auto *lit : fml_vec) {
         new_lit = lit;
-        to_int_expr(new_lit);
+        to_int_term(new_lit);
         new_fml.push_back(new_lit);
     }
     fml = m.mk_and(new_fml);
@@ -226,16 +225,15 @@ static void to_int(expr_ref &fml) {
 ///
 /// only supports arithmetic expressions
 /// Applies the following rewrite rules upto depth \p depth
-/// (to_real_expr c)                           --> (c:Real) where c is a numeral
-/// (to_real_expr i:Int)                       --> (to_real i) where i is a
-/// constant/var (to_real_expr (select A i:Int))            --> (select A
-/// (to_int (to_real i))) (to_real_expr (op (a0:Int) ... (aN:Int)))  --> (op
-/// (to_real a0) ... (to_real aN))
+/// (to_real_term c)                             --> (c:Real) where c is a numeral
+/// (to_real_term i:Int)                         --> (to_real i) where i is a
+/// constant/var (to_real_term (select A i:Int)) --> (select A (to_int (to_real i)))
+/// (to_real_term (op (a0:Int) ... (aN:Int)))    --> (op (to_real a0) ... (to_real aN))
 ///                                           where op is an arithmetic
 ///                                           operation
 /// on all other formulas, do nothing
 /// NOTE: cannot use a rewriter since we change the sort of fml
-static void to_real_expr(expr_ref &fml, unsigned depth = 3) {
+static void to_real_term(expr_ref &fml, unsigned depth = 3) {
     ast_manager &m = fml.get_manager();
     arith_util arith(m);
     array_util array(m);
@@ -275,7 +273,7 @@ static void to_real_expr(expr_ref &fml, unsigned depth = 3) {
         expr_ref child(m);
         for (unsigned i = 0; i < num; i++) {
             child = args[i];
-            to_real_expr(child, depth - 1);
+            to_real_term(child, depth - 1);
             new_args.push_back(child);
         }
     }
@@ -298,7 +296,7 @@ static void to_real(expr_ref &fml) {
         app *f_app = to_app(f);
         for (auto *arg : *f_app) {
             kid = arg;
-            to_real_expr(kid);
+            to_real_term(kid);
             new_args.push_back(kid);
         }
         // Uninterpreted functions cannot be created using the mk_app api that
