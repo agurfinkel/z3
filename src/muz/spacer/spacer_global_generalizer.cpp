@@ -512,6 +512,8 @@ bool lemma_global_generalizer::subsume(lemma_cluster lc, lemma_ref &lemma,
           tout << "calling mbp with " << cvx_pattern << " and " << t << "\n";);
     qe_project(m, m_dim_frsh_cnsts, cvx_pattern, *mdl.get(), true, true,
                !m_ctx.use_ground_pob());
+    // TODO: make sure that all new vars introduced by convex closure are
+    // projected
     TRACE("subsume_verb", tout << "Pattern after mbp of computing cvx cls: "
                                << cvx_pattern << "\n";);
 
