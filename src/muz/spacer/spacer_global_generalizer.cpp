@@ -278,8 +278,8 @@ static void normalize(expr_ref &fml) {
         rational lcm = get_lcm(e, m);
         SASSERT(lcm != rational::zero());
         if (lcm != 1) {
-            mul_and_simp(lhs, lcm);
-            mul_and_simp(rhs, lcm);
+            mul_by_rat(lhs, lcm);
+            mul_by_rat(rhs, lcm);
             TRACE("subsume_verb", tout << "mul and simp reduced lhs to "
                                        << mk_pp(lhs, m) << " and rhs to "
                                        << mk_pp(rhs, m) << "\n";);

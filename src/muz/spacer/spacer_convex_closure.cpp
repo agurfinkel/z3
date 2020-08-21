@@ -104,7 +104,8 @@ void convex_closure::generate_lin_deps(expr_ref_vector &res) {
             } else {
                 expr_ref prod(m);
                 if (j != row.size() - 1) {
-                    mul_if_not_one(-1 * val * m_lcm, m_dim_vars[j].get(), prod);
+                    prod = m_dim_vars[j].get();
+                    mul_by_rat(prod, -1*val*m_lcm);
                 } else if (m_is_arith) {
                     // AG: determine type from expression, don't assume it
                     // AG: is INT and not REAL
@@ -141,7 +142,8 @@ void convex_closure::generate_lin_deps(expr_ref_vector &res) {
                              : m.mk_app(m_bv.get_fid(), OP_BADD, rw.size(),
                                         rw.c_ptr());
         expr_ref pv_var(m);
-        mul_if_not_one(coeff * m_lcm, m_dim_vars[pv].get(), pv_var);
+        pv_var = m_dim_vars[pv].get();
+        mul_by_rat(pv_var, coeff * m_lcm);
 
         rw_term = m.mk_eq(pv_var, rw_term);
         TRACE("cvx_dbg", tout << "rewrote " << mk_pp(m_dim_vars[pv].get(), m)
@@ -153,13 +155,14 @@ void convex_closure::generate_lin_deps(expr_ref_vector &res) {
 /// add (Col_j . m_nw_vars = m_dim_vars[j]) to res_vec
 void convex_closure::add_sum_cnstr(unsigned i, expr_ref_vector &res_vec) {
     expr_ref_vector add(m);
-    expr_ref mul(m), result_var(m), exp(m);
+    expr_ref mul(m), result_var(m);
     for (unsigned j = 0; j < m_nw_vars.size(); j++) {
-        exp = to_expr(m_nw_vars.get(j));
-        mul_if_not_one(m_data.get(j, i), exp.get(), mul);
+        mul = m_nw_vars.get(j);
+        mul_by_rat(mul, m_data.get(j, i));
         add.push_back(mul);
     }
-    mul_if_not_one(m_lcm, m_dim_vars[i].get(), result_var);
+    result_var = m_dim_vars[i].get();
+    mul_by_rat(result_var, m_lcm);
     if (m_is_arith)
         res_vec.push_back(
             m.mk_eq(m_arith.mk_add(add.size(), add.c_ptr()), result_var));
@@ -300,7 +303,8 @@ void convex_closure::do_one_dim_cls(expr_ref var, expr_ref_vector &res_vec) {
         [](rational const &x, rational const &y) -> bool { return x > y; });
 
     expr_ref ub_expr(m), lb_expr(m), result_var(m);
-    mul_if_not_one(m_lcm, var, result_var);
+    result_var = var;
+    mul_by_rat(result_var, m_lcm);
     ub_expr = mk_ineq(result_var, data[0], true);
     lb_expr = mk_ineq(result_var, data[data.size() - 1], false);
 
@@ -317,7 +321,8 @@ void convex_closure::do_one_dim_cls(expr_ref var, expr_ref_vector &res_vec) {
                           return x > y;
                       });
             if (compute_div_constraint(data, cr, off)) {
-                mul_if_not_one(m_lcm, v, result_var);
+                result_var = v;
+                mul_by_rat(result_var, m_lcm);
                 if (m_is_arith)
                     res_vec.push_back(m_arith.mk_eq(
                         m_arith.mk_mod(result_var, m_arith.mk_int(cr)),

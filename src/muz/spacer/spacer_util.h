@@ -171,10 +171,8 @@ namespace spacer {
     // multiply fml with num and simplify rationals to ints
     // fml should be in LIA/LRA/Arrays
     // assumes that fml is a sum of products
-    void mul_and_simp(expr_ref &fml, rational num);
+    void mul_by_rat(expr_ref &fml, rational num);
 
-    // if coeff == 1, return res else return coeff*res
-    void mul_if_not_one(rational coeff, expr *e, expr_ref &res);
     // get all numeral values in the formula
     void extract_nums(expr_ref fml, vector<rational> &res);
 }
