@@ -209,8 +209,7 @@ static void to_int_term(expr_ref &fml) {
 static void to_int(expr_ref &fml) {
     ast_manager &m = fml.get_manager();
     arith_util arith(m);
-    expr_ref_vector fml_vec(m);
-    expr_ref_buffer new_fml(m);
+    expr_ref_vector fml_vec(m), new_fml(m);
     expr_ref new_lit(m);
     flatten_and(fml, fml_vec);
     for (auto *lit : fml_vec) {
@@ -218,7 +217,7 @@ static void to_int(expr_ref &fml) {
         to_int_term(new_lit);
         new_fml.push_back(new_lit);
     }
-    fml = m.mk_and(new_fml);
+    fml = mk_and(new_fml);
 }
 
 /// Wrap integer uninterpreted constants in expression \p fml with (to_real)
@@ -287,9 +286,9 @@ static void to_real(expr_ref &fml) {
     ast_manager &m = fml.get_manager();
     // cannot use an expr_ref_buffer since flatten_and operates on
     // expr_ref_vector
-    expr_ref_vector fml_vec(m);
+    expr_ref_vector fml_vec(m), new_fml(m);
     flatten_and(fml, fml_vec);
-    expr_ref_buffer new_args(m), new_fml(m);
+    expr_ref_buffer new_args(m);
     expr_ref kid(m), new_f(m);
     for (auto *f : fml_vec) {
         new_args.reset();
@@ -309,7 +308,7 @@ static void to_real(expr_ref &fml) {
         TRACE("subsume", tout << "to real op2 " << new_f << "\n";);
         new_fml.push_back(new_f);
     }
-    fml = m.mk_and(new_fml);
+    fml = mk_and(new_fml);
 }
 
 /// Create new vars to compute convex cls
@@ -492,7 +491,7 @@ bool lemma_global_generalizer::subsume(lemma_cluster lc, lemma_ref &lemma,
     for (auto l : lc.get_lemmas()) {
         neg.push_back((l.get_lemma()->get_expr()));
     }
-    expr_ref neg_expr(m.mk_and(neg), m);
+    expr_ref neg_expr(mk_and(neg), m);
     m_solver->assert_expr(neg_expr);
     lbool res = m_solver->check_sat(0, nullptr);
     if (res == l_true) {
