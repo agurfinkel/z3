@@ -104,7 +104,7 @@ void convex_closure::generate_lin_deps(expr_ref_vector &res) {
             } else {
                 expr_ref prod(m);
                 if (j != row.size() - 1) {
-                    prod = m_dim_vars[j].get();
+                    prod = m_dim_vars.get(j);
                     mul_by_rat(prod, -1*val*m_lcm);
                 } else if (m_is_arith) {
                     // AG: determine type from expression, don't assume it
@@ -126,10 +126,10 @@ void convex_closure::generate_lin_deps(expr_ref_vector &res) {
         // AG: what is different between m_arith.mk_eq() and m.mk_eq()?
         if (rw.size() == 0) {
             if (m_is_arith)
-                res.push_back(m_arith.mk_eq(m_dim_vars[pv].get(),
+                res.push_back(m_arith.mk_eq(m_dim_vars.get(pv),
                                             m_arith.mk_int(rational::zero())));
             else
-                res.push_back(m.mk_eq(m_dim_vars[pv].get(),
+                res.push_back(m.mk_eq(m_dim_vars.get(pv),
                                    m_bv.mk_numeral(rational::zero(), m_bv_sz)));
             continue;
         }
@@ -142,11 +142,11 @@ void convex_closure::generate_lin_deps(expr_ref_vector &res) {
                              : m.mk_app(m_bv.get_fid(), OP_BADD, rw.size(),
                                         rw.c_ptr());
         expr_ref pv_var(m);
-        pv_var = m_dim_vars[pv].get();
+        pv_var = m_dim_vars.get(pv);
         mul_by_rat(pv_var, coeff * m_lcm);
 
         rw_term = m.mk_eq(pv_var, rw_term);
-        TRACE("cvx_dbg", tout << "rewrote " << mk_pp(m_dim_vars[pv].get(), m)
+        TRACE("cvx_dbg", tout << "rewrote " << mk_pp(m_dim_vars.get(pv), m)
                               << " into " << rw_term << "\n";);
         res.push_back(rw_term);
     }
@@ -161,7 +161,7 @@ void convex_closure::add_sum_cnstr(unsigned i, expr_ref_vector &res_vec) {
         mul_by_rat(mul, m_data.get(j, i));
         add.push_back(mul);
     }
-    result_var = m_dim_vars[i].get();
+    result_var = m_dim_vars.get(i);
     mul_by_rat(result_var, m_lcm);
     if (m_is_arith)
         res_vec.push_back(
@@ -189,7 +189,7 @@ void convex_closure::syn_cls(expr_ref_vector &res_vec) {
     }
 
     for (unsigned i = 0; i < m_dim_vars.size(); i++) {
-        e = m_dim_vars[i].get();
+        e = m_dim_vars.get(i);
         if (is_var(e)) add_sum_cnstr(i, res_vec);
     }
 
@@ -259,7 +259,7 @@ bool convex_closure::closure(expr_ref_vector &res_vec) {
     unsigned red_dim = reduce_dim();
     // store dim var before rewrite
     expr_ref var(m);
-    var = m_dim_vars[0].get();
+    var = m_dim_vars.get(0);
     if (red_dim < dims()) {
         m_st.m_num_reductions++;
         generate_lin_deps(res_vec);

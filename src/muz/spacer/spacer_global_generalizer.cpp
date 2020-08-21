@@ -467,7 +467,7 @@ bool lemma_global_generalizer::subsume(lemma_cluster lc, lemma_ref &lemma,
         }
     }
 
-    cls.push_back(pattern.get());
+    cls.push_back(pattern);
     expr_ref cvx_pattern(m);
     var_to_const(mk_and(cls), cvx_pattern);
 
@@ -708,7 +708,7 @@ void lemma_global_generalizer::var_to_const(expr *pattern,
     expr_safe_replace s(m);
     obj_map<expr, expr *> sub;
     for (unsigned i = 0; i < m_dim_vars.size(); i++) {
-        s.insert(m_dim_vars[i].get(), to_expr(m_dim_frsh_cnsts[i].get()));
+        s.insert(m_dim_vars.get(i), to_expr(m_dim_frsh_cnsts.get(i)));
     }
     s(pattern, rw_pattern);
     TRACE("subsume_verb", tout << "Rewrote all vars into u_consts "
