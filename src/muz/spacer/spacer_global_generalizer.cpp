@@ -583,6 +583,42 @@ bool lemma_global_generalizer::subsume(lemma_cluster lc, lemma_ref &lemma,
     return false;
 }
 
+/// Attempt to set a conjecture on pob \p n by dropping literal \p lit from its
+/// post. \p lvl and \p gas are the level and gas for conjecture pob
+/// returns true if conjecture is set
+bool lemma_global_generalizer::do_conjecture(pob_ref n, expr_ref lit,
+                                             unsigned lvl, unsigned gas) {
+    expr_ref_vector conj(m), fml_vec(m);
+    expr_ref n_pob = expr_ref(n->post(), m);
+    flatten_and(fml_vec);
+    bool is_smaller = drop_lit(fml_vec, lit, conj);
+    SASSERT(gas > 0 && gas < UINT_MAX);
+    if (conj.size() == 0) {
+        // If the pob cannot be abstracted, stop using generalization on
+        // it
+        TRACE("global", tout << "stop local generalization on pob " << n_pob
+                             << " id is " << n_pob->get_id() << "\n";);
+        n->stop_local_gen();
+        return false;
+    }
+    if (!is_smaller) {
+        // The literal to be abstracted is not in the pob
+        TRACE("global", tout << "cannot conjecture on " << n_pob << " with lit "
+                             << lit << "\n";);
+        // TODO: Should we stop local generalization at this point ?
+        m_st.m_num_cant_abs++;
+        return false;
+    }
+    // There is enough gas to conjecture on pob
+    n->set_conj_pattern(conj);
+    n->set_expand_bnd();
+    n->set_may_pob_lvl(lvl);
+    n->set_gas(gas);
+    TRACE("global", tout << "set conjecture " << conj << " at level "
+                         << n->get_may_pob_lvl() << "\n";);
+    return true;
+}
+
 // decide global guidance based on lemma
 bool lemma_global_generalizer::core(lemma_ref &lemma) {
     lemma_cluster *pt_cls = (&*lemma->get_pob())->pt().clstr_match(lemma);
@@ -604,6 +640,8 @@ bool lemma_global_generalizer::core(lemma_ref &lemma) {
                : lc.get_lemmas()) {
               tout << "\n \t" << lemma.get_lemma()->get_cube();
           });
+
+    // Concretize
     if (has_nonlinear_var_mul(pattern, m)) {
         m_st.m_num_non_lin++;
         if (pt_cls->get_gas() == 0) {
@@ -619,51 +657,33 @@ bool lemma_global_generalizer::core(lemma_ref &lemma) {
         return false;
     }
 
+    //Conjecture
     expr_ref lit(m);
     if (should_conjecture(pattern, lit)) {
         // Create a conjecture by dropping literal from pob.
         pob_ref n = lemma->get_pob();
         TRACE("global", tout << "Conjecture with pattern " << mk_pp(pattern, m)
                              << " with gas " << pt_cls->get_gas() << "\n";);
-
-        expr_ref_vector conj(m);
-        expr_ref n_pob = expr_ref(n->post(), m);
-        expr_ref_vector fml_vec(m);
-        fml_vec.push_back(n_pob);
-        flatten_and(fml_vec);
-        bool is_smaller = drop_lit(fml_vec, lit, conj);
-
-        if (pt_cls->get_gas() == 0) m_st.m_num_cls_ofg++;
-
-        if (conj.size() == 0 || pt_cls->get_gas() == 0) {
-            // If the pob cannot be abstracted, stop using generalization on
-            // it
-            TRACE("global", tout << "stop local generalization on pob " << n_pob
-                                 << " id is " << n_pob->get_id() << "\n";);
-
+        if (pt_cls->get_gas() == 0) {
+            m_st.m_num_cls_ofg++;
             n->stop_local_gen();
-        } else if (!is_smaller) {
-            // The literal to be abstracted is not in the pob
-            TRACE("global", tout << "cannot conjecture on " << n_pob
-                                 << " with lit " << lit << "\n";);
-            // TODO: Should we stop local generalization at this point ?
-            m_st.m_num_cant_abs++;
+            TRACE("global", tout << "stop local generalization on pob " << mk_pp(n->post(), m)
+                                 << " id is " << n->post()->get_id() << "\n";);
         } else {
-            // There is enough gas to conjecture on pob
-            n->set_conj_pattern(conj);
-            n->set_expand_bnd();
-            n->set_may_pob_lvl(pt_cls->get_min_lvl() + 1);
-            n->set_gas(pt_cls->get_pob_gas());
-            pt_cls->dec_gas();
-            TRACE("global", tout << "set conjecture " << conj << " at level "
-                                 << n->get_may_pob_lvl() << "\n";);
+            unsigned gas = pt_cls->get_pob_gas();
+            unsigned lvl = pt_cls->get_min_lvl() + 1;
+            if (do_conjecture(n, lit, lvl, gas)) {
+                // decrease the number of times this cluster is going to be used for conjecturing
+                pt_cls->dec_gas();
+            }
         }
     }
 
     // if subsumption removed all the other lemmas, there is nothing to
     // generalize
     if (lc.get_size() < 2) return false;
-    // in all other cases subsume
+
+    // Subsume
     expr_ref_vector subsume_gen(m);
     if (subsume(lc, lemma, subsume_gen)) {
         pob_ref pob = lemma->get_pob();

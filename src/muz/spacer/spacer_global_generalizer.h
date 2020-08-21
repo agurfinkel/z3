@@ -90,6 +90,11 @@ class lemma_global_generalizer : public lemma_generalizer {
 
     void reset(unsigned n_vars);
 
+    /// Attempt to set a conjecture on \p pob n by dropping literal \p lit from its post
+    /// \p lvl is level for conjecture pob \p gas is the gas for the conjecture pob
+    /// returns true if conjecture is set
+    bool do_conjecture(pob_ref n, expr_ref lit, unsigned lvl, unsigned gas);
+
     /// Replace bound vars in \p fml with uninterpreted constants
     /// AG: isn't this just ground?
     void var_to_const(expr *fml, expr_ref &rw_fml);
