@@ -268,7 +268,7 @@ void mul_by_rat(expr_ref &fml, rational num) {
         e = m_arith.mk_mul(m_arith.mk_numeral(num, m_arith.is_int(fml)), fml);
     } else if (m_bv.is_bv(fml)) {
         unsigned sz = m_bv.get_bv_size(fml);
-        e = m_bv.mk_bv_mul(m_bv.mk_numeral(num, sz), e);
+        e = m_bv.mk_bv_mul(m_bv.mk_numeral(num, sz), fml);
     }
 
     // use theory rewriter to simplify

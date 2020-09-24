@@ -24,12 +24,28 @@ namespace {
 bool is_ineq(ast_manager &m, const expr *fml, rational &val) {
     arith_util m_arith(m);
     expr *e1, *e2;
+    // TODO: Handle BV
     if (m.is_not(fml, e1)) return is_ineq(m, e1, val);
-    // AG: why is strict inequality not handled?
-    // AG: why not handle bv case as well?
-    if (m_arith.is_le(fml, e1, e2) || m_arith.is_ge(fml, e1, e2))
-        return m_arith.is_numeral(e1, val);
+    if (m_arith.is_le(fml, e1, e2) || m_arith.is_ge(fml, e1, e2) ||
+        m_arith.is_lt(fml, e1, e2) || m_arith.is_gt(fml, e1, e2))
+        return m_arith.is_numeral(e2, val);
     return false;
+}
+
+/// make \p b the same size as \p a by inserting True.
+///
+/// Reorders literals in b to reflect the order in a
+void reorder_and_resize(const expr_ref_vector &a, expr_ref_vector &b) {
+    unsigned i = 0;
+    expr_ref_vector backup(b);
+    ast_manager &m(a.get_manager());
+    b.reset();
+    b.reserve(a.size());
+    while (i < a.size()) {
+        if (backup.contains(a.get(i))) b[i] = a.get(i);
+        else b[i] = m.mk_true();
+        i++;
+    }
 }
 
 /// Replace RHS of \p fml with \p n
@@ -52,19 +68,6 @@ void substitute(rational n, const expr *fml, expr_ref &res) {
     res = m.mk_app(to_app(fml)->get_decl(), lhs,
                    m_arith.mk_numeral(n, n.is_int()));
 }
-
-/// Substitute \p lit in \p fml with \p sub
-void replace(expr_ref lit, expr_ref sub, expr_ref_vector &fml) {
-    for (unsigned i = 0, sz = fml.size(); i < sz; ++i) {
-        if (fml.get(i) == lit) {
-            fml[i] = sub;
-            return;
-        }
-    }
-    // -- if we got here, `lit` is not in fml
-    fml.push_back(sub);
-}
-
 } // namespace
 namespace spacer {
 lemma_expand_bnd_generalizer::lemma_expand_bnd_generalizer(context &ctx)
@@ -83,22 +86,21 @@ void lemma_expand_bnd_generalizer::operator()(lemma_ref &lemma) {
     const expr_ref_vector &conj = lemma->get_cube();
     // -- new lemma, initially same as conj
     expr_ref_vector updt_conj(conj);
+    // -- maintain copy so that we can preserve order after call to check_ind_and_update
+    expr_ref_vector updt_conj_copy(updt_conj);
 
     expr_ref lit(m), new_lit(m);
     rational val;
     for (unsigned i = 0; i < conj.size(); i++) {
         lit = conj.get(i);
         if (!is_ineq(m, lit, val)) continue;
-        // AG: unnecessarily expensive. This can be codded better, for example
-        // AG: by replacing deleted literals with `true` until the end
-        if (!updt_conj.contains(lit)) continue;
+        if (m.is_true(updt_conj.get(i))) continue;
 
         TRACE("expand_bnd", tout << "Attempting to expand " << lit << " inside "
                                  << conj << "\n";);
 
         for (rational n : m_values) {
-            // AG: potentially expensive in a tight loop
-            if (!updt_conj.contains(lit)) break;
+            if (m.is_true(updt_conj.get(i))) break;
             if (!should_apply(lit, val, n)) continue;
 
             TRACE("expand_bnd", tout << "Attempting to expand " << lit
@@ -108,18 +110,24 @@ void lemma_expand_bnd_generalizer::operator()(lemma_ref &lemma) {
             substitute(n, lit, new_lit);
             SASSERT(new_lit.get() != nullptr);
             // -- update lit to new_lit in new candidate lemma
-            replace(lit, new_lit, updt_conj);
+            updt_conj[i] = new_lit;
+            updt_conj_copy[i] = new_lit;
             m_st.atmpts++;
 
             // -- check that candidate is inductive
             if (check_ind_and_update(lemma, updt_conj)) {
                 // -- it worked, try another number
                 lit = new_lit;
+                reorder_and_resize(updt_conj_copy, updt_conj);
+                SASSERT(updt_conj_copy.size() == updt_conj.size());
+                updt_conj_copy.reset();
+                updt_conj_copy.append(updt_conj);
                 if (!is_ineq(m, lit, val)) break;
+            } else {
+                // -- didn't work. get updt_conj to previous state
+                updt_conj[i] = lit;
+                updt_conj_copy[i] = lit;
             }
-            // AG: if check_ind_and_update fails, why not try another number?
-            // AG: why check another number if generalization succeeded? Are the
-            // numbers ordered in some way?
         }
     }
 
