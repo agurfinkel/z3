@@ -23,7 +23,7 @@ Revision History:
 #include "muz/spacer/spacer_context.h"
 #include "muz/spacer/spacer_global_generalizer.h"
 #include "muz/spacer/spacer_expand_bnd_generalizer.h"
-
+#include "muz/spacer/spacer_adt_generalizer.h"
 namespace spacer {
 
 // can be used to check whether produced core is really implied by

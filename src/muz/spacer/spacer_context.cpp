@@ -2718,7 +2718,7 @@ void context::init_lemma_generalizers()
     if (m_validate_lemmas) {
         m_lemma_generalizers.push_back(alloc(lemma_sanity_checker, *this));
     }
-
+    // m_lemma_generalizers.push_back(alloc(adt_generalizer, *this));
 }
 
 void context::get_level_property(unsigned lvl, expr_ref_vector& res,
