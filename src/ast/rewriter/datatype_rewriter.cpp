@@ -17,7 +17,31 @@ Notes:
 
 --*/
 #include "ast/rewriter/datatype_rewriter.h"
-
+#include "ast/for_each_expr.h"
+namespace {
+namespace contains_uninterp_proc_ns {
+    struct found{};
+    struct contains_uninterp_proc {
+      ast_manager &m;
+      datatype_util m_dt;
+      contains_uninterp_proc(ast_manager &a_m) : m(a_m), m_dt(m) {}
+      void operator()(expr *n) const {}
+      void operator()(app *n) {
+        if (m.is_considered_uninterpreted(n->get_decl()))
+            throw found();
+      }
+    };
+}
+bool contains_uninterp(expr *c, ast_manager &m) {
+    contains_uninterp_proc_ns::contains_uninterp_proc t(m);
+    try {
+        for_each_expr(t, c);
+        return false;
+    } catch (const contains_uninterp_proc_ns::found &) {
+        return true;
+    }
+}
+}
 br_status datatype_rewriter::mk_app_core(func_decl * f, unsigned num_args, expr * const * args, expr_ref & result) {
     SASSERT(f->get_family_id() == get_fid());
     switch(f->get_decl_kind()) {
@@ -32,8 +56,12 @@ br_status datatype_rewriter::mk_app_core(func_decl * f, unsigned num_args, expr 
         // simplify is_cons(nil) -> false
         //
         SASSERT(num_args == 1);
-        if (!is_app(args[0]) || !m_util.is_constructor(to_app(args[0])))
-            return BR_FAILED;
+        if (!is_app(args[0]) || !m_util.is_constructor(to_app(args[0]))) {
+            if (!is_app(args[0]) || contains_uninterp(args[0], m()))
+                return BR_FAILED;
+            else
+                result = m().mk_false();
+        }
         if (to_app(args[0])->get_decl() == m_util.get_recognizer_constructor(f))
             result = m().mk_true();
         else
