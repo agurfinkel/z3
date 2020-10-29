@@ -242,9 +242,10 @@ void rule_properties::operator()(app* n) {
              && (!evaluates_to_numeral(n2, r) || r.is_zero())) {
         m_uninterp_funs.insert(f, m_rule);
     }
-    else if (m_rec.is_defined(f)) {
-        m_uninterp_funs.insert(f, m_rule);
-    }
+    // We are going to support recursive functions
+    // else if (m_rec.is_defined(f)) {
+    //     m_uninterp_funs.insert(f, m_rule);
+    // }
     check_sort(m.get_sort(n));
 }
 
