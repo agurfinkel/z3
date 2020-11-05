@@ -528,6 +528,15 @@ class pred_transformer {
             return false;
         }
 
+        /// The number of clusters with pattern \p pattern
+        unsigned clstr_count(const expr_ref &pattern) {
+            unsigned count = 0;
+            for (auto c : m_clusters) {
+                if (c->get_pattern() == pattern) count++;
+            }
+            return count;
+        }
+
         lemma_cluster *mk_cluster(const expr_ref &pattern) {
             m_clusters.push_back(alloc(lemma_cluster, pattern));
             return m_clusters.back();
@@ -773,6 +782,11 @@ public:
     // Checks whether \p lemma is in any existing cluster
     bool clstr_contains(const lemma_ref &lemma) {
         return m_cluster_db.contains(lemma);
+    }
+
+    /// The number of clusters with pattern \p pattern
+    unsigned clstr_count(const expr_ref & pattern) {
+        return m_cluster_db.clstr_count(pattern);
     }
 
     /// Checks whether \p lemma matches any cluster
