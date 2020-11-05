@@ -3120,7 +3120,8 @@ void context::log_expand_pob(pob &n) {
                          << (n.is_subsume_pob() ? " SUBS" : "")
                          << " level: " << n.level()
                          << " depth: " << (n.depth() - m_pob_queue.min_depth())
-                         << " fvsz: " << n.get_free_vars_size() << "\n"
+                         << " fvsz: " << n.get_free_vars_size()
+                         << " gas: " << n.get_gas() << "\n"
                          << mk_pp(n.post(), m) << "\n";);
 
     STRACE("spacer_progress",
@@ -4135,6 +4136,7 @@ bool context::create_children(pob& n, datalog::rule const& r,
 
     if (kid->is_may_pob()) {
         SASSERT(n.get_gas() > 0);
+        n.set_gas(n.get_gas() - 1);
         kid->set_gas(n.get_gas() - 1);
     }
     out.push_back(kid);
