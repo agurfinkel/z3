@@ -1203,6 +1203,7 @@ expr_ref pred_transformer::get_origin_summary (model &mdl,
     for (auto* s : summary) {
         if (!is_quantifier(s) && !mdl.is_true(s)) {
             TRACE("spacer", tout << "Summary not true in the model: " << mk_pp(s, m) << "\n";);
+            return expr_ref(m);
         }
     }
     
@@ -1414,11 +1415,12 @@ lbool pred_transformer::is_reachable(pob& n, expr_ref_vector* core,
         if (core) { core->reset(); }
         if (model && model->get()) {
             r = find_rule(**model, is_concrete, reach_pred_used, num_reuse_reach);
-            TRACE("spacer", 
+            TRACE("spacer",
                   tout << "reachable is_sat: " << is_sat << " "
-                  << r << " is_concrete " << is_concrete << " rused: " << reach_pred_used << "\n";
-                  ctx.get_datalog_context().get_rule_manager().display_smt2(*r, tout) << "\n";
-                  );
+                  << r << " is_concrete " << is_concrete << " rused: " << reach_pred_used << "\n";);
+            CTRACE("spacer", r,
+                   ctx.get_datalog_context().get_rule_manager().display_smt2(*r, tout);
+                   tout << "\n";);
             TRACE("spacer_sat", tout << "model is:\n" << **model << "\n";);
         }
 

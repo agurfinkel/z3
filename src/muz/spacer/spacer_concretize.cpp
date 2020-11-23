@@ -1,3 +1,21 @@
+/*++
+Copyright (c) 2020 Arie Gurfinkel
+
+Module Name:
+
+  spacer_concretize.cpp
+
+Abstract:
+
+  Concretize a pob
+
+Author:
+
+  Hari Govind V K
+  Arie Gurfinkel
+
+
+--*/
 #include "spacer_concretize.h"
 namespace {
 
@@ -36,7 +54,7 @@ struct proc {
 namespace spacer {
 
 // Checks whether the uninterp_const in term has a var coeff in pattern
-bool concretize::should_grp(expr *pattern, expr *term) {
+bool concretize::should_partition(expr *pattern, expr *term) {
     expr_ref_vector uc(m);
     get_uninterp_consts(term, uc);
     TRACE("concretize_verb", tout << "should group " << mk_pp(term, m)
@@ -50,8 +68,8 @@ bool concretize::should_grp(expr *pattern, expr *term) {
     return false;
 }
 
-// concretize proof obligation n using literals of dim 1
-// returns false if pob is not an arithmetic fml
+/// Concretize formula \p f using literals of dim 1
+/// returns false if \p f is not an arithmetic fml
 bool concretize::mk_concr(expr_ref f, model_ref &model,
                           expr_ref_vector &concr_vec, expr_ref pattern) {
     SASSERT(is_app(f));
@@ -81,7 +99,7 @@ bool concretize::mk_concr(expr_ref f, model_ref &model,
 
     SASSERT(pattern.get() != nullptr);
 
-    grp_concretize(conj_la, pattern, model, concr_vec);
+    partition_and_concretize(conj_la, pattern, model, concr_vec);
 
     TRACE("concretize",
           tout << "produced a concretization : " << mk_and(concr_vec) << "\n";);
@@ -89,7 +107,10 @@ bool concretize::mk_concr(expr_ref f, model_ref &model,
     return true;
 }
 
-void concretize::grp_concretize(const expr_ref_vector &cube, expr_ref pattern,
+/// Partition terms of \p cube using the method partition_terms.
+/// Then find bounds \p lb and \p ub such that
+///            \Land_{p \in partitions} (lb[t] <= t <= ub[t]) ==> cube
+void concretize::partition_and_concretize(const expr_ref_vector &cube, expr_ref pattern,
                                 model_ref &model, expr_ref_vector &concr_cube) {
     expr_ref_vector grps(m);
     expr_ref_vector sub_term(m);
@@ -98,7 +119,7 @@ void concretize::grp_concretize(const expr_ref_vector &cube, expr_ref pattern,
           tout << mk_and(cube) << " and pattern " << mk_pp(pattern, m)
                << " \n";);
     for (auto lit : cube) {
-        grp_terms(pattern, expr_ref(lit, m), grps, sub_term);
+        partition_terms(pattern, expr_ref(lit, m), grps, sub_term);
     }
     TRACE("concretize", tout << "groups are : "; for (expr *e
                                                       : grps) tout
@@ -143,8 +164,14 @@ void concretize::grp_concretize(const expr_ref_vector &cube, expr_ref pattern,
           tout << "concrete pob : " << mk_pp(mk_and(concr_cube), m) << "\n";);
 }
 
-// If there are n non linear multiplications in pattern, there are n + 1 axis.
-void concretize::grp_terms(expr_ref pattern, expr_ref formula,
+/// Partition terms in \p formula such that each constant that has a
+/// variable coefficient in \p pattern belongs to a separate partition.
+///
+/// \p formula is an LA literal in SOP. \p out is the partitioning \p sub_term
+/// is a syntactic rewriting of \p formula such that each term in \p out is a
+/// term in \p sub_term.
+/// If there are n non linear multiplications in pattern, there are n + 1 axis.
+void concretize::partition_terms(expr_ref pattern, expr_ref formula,
                            expr_ref_vector &out, expr_ref_vector &sub_term) {
     expr *t, *c;
     expr_ref_vector rw_formula(m);
@@ -160,7 +187,7 @@ void concretize::grp_terms(expr_ref pattern, expr_ref formula,
     TRACE("concretize_verb",
           tout << "computing groups in " << formula << "\n";);
     for (auto term : *to_app(t)) {
-        if (should_grp(pattern, term)) {
+        if (should_partition(pattern, term)) {
             if (!out.contains(term)) {
                 TRACE("concretize_verb",
                       tout << "adding " << mk_pp(term, m) << " to groups\n";);
@@ -195,18 +222,19 @@ void concretize::grp_terms(expr_ref pattern, expr_ref formula,
                                   << " for substitution\n";);
     sub_term.push_back(t_sub);
 }
-
+/// SOP: (+ (* a0) ... (*aN))
 bool concretize::is_sop(expr *e) {
     if (is_constant(e)) return true;
     if (!m_arith.is_arith_expr(e)) return false;
 
     expr *e1, *e2;
     // cannot have a top level operand other than plus
-    if (!m_arith.is_add(e) && !is_constant(e)) {
+    if (!m_arith.is_add(e)) {
         // all arguments for the product should be constants.
         if (!(m_arith.is_mul(e, e1, e2) && is_constant(e1) && is_constant(e2)))
             return false;
     }
+    if (!is_app(e)) return false;
     // all terms inside have to be either a constant or a product of
     // constants
     for (expr *term : *to_app(e)) {
@@ -219,6 +247,9 @@ bool concretize::is_sop(expr *e) {
     return true;
 }
 
+/// Find the coeff of \p v in \p t
+///
+/// Assumes that t is in LA and in SOP or -1*SOP form
 void concretize::find_coeff(expr_ref t, expr_ref v, rational &k) {
     if (t == v) {
         k = rational::one();
@@ -255,6 +286,10 @@ void concretize::find_coeff(expr_ref t, expr_ref v, rational &k) {
     UNREACHABLE();
 }
 
+/// Returns whether the value of \p lit increases(1), decreases(-1) or doesn't
+/// change(0) with \p var
+///
+/// \p l is assumed to be a term in LA
 int concretize::change_with_var(expr_ref l, expr_ref var) {
     rational coeff;
     // lhs is in the sum of products form (ax + by)
@@ -271,19 +306,22 @@ int concretize::change_with_var(expr_ref l, expr_ref var) {
         return 0;
 }
 
-// TODO  use bg if we need better bounds. In this
-// case, should update background as bounds are discovered!!!!
-void concretize::concretize_lit(model_ref &model, expr_ref lit,
+/// Tighten bounds \p lb and \p ub such that
+///     \forall x \in uninterp_consts(term) (lb[x] <= x <= ub[x]) ==> term <= model(term)
+///
+/// NOTE: optimize using bg if we need better bounds. In this
+/// case, should update background as bounds are discovered!!!!
+void concretize::concretize_term(model_ref &model, expr_ref term,
                                 expr_rat_map &lb, expr_rat_map &ub,
                                 expr_expr_map *sub) {
     expr_ref val(m);
 
     expr_ref_vector dims(m);
-    get_uninterp_consts(lit, dims);
+    get_uninterp_consts(term, dims);
 
     for (expr *var : dims) {
         // compute variation of l along dim d
-        int change = change_with_var(lit, expr_ref(var, m));
+        int change = change_with_var(term, expr_ref(var, m));
         SASSERT(!sub || sub->contains(var));
         CTRACE("concretize_verb", sub,
                tout << "computing value of " << mk_pp(var, m) << "\n";);
@@ -318,6 +356,8 @@ void concretize::concretize_lit(model_ref &model, expr_ref lit,
     }
 }
 
+/// Find bounds \p lb, \p ub such that
+///     \Land x \in uninterp_consts(cube) (lb[x] <= x <= ub[x]) ==> cube
 void concretize::concretize_cube(const expr_ref_vector &conj, model_ref &model,
                                  expr_rat_map &lb, expr_rat_map &ub,
                                  expr_expr_map *sub) {
@@ -330,7 +370,7 @@ void concretize::concretize_cube(const expr_ref_vector &conj, model_ref &model,
                                      << "normalized as: " << mk_pp(t, m)
                                      << " <= " << mk_pp(c, m) << "\n";);
 
-            concretize_lit(model, t, lb, ub, sub);
+            concretize_term(model, t, lb, ub, sub);
         }
     }
 }

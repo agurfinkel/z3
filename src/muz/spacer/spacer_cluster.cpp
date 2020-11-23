@@ -1,10 +1,21 @@
-/*
+/*++
+Copyright (c) 2020 Arie Gurfinkel
+
+Module Name:
 
   spacer_cluster.cpp
 
-  Discover and mark lemma clusters.
+Abstract:
 
-*/
+  Discover and mark lemma clusters
+
+Author:
+
+  Hari Govind V K
+  Arie Gurfinkel
+
+
+--*/
 #include <algorithm>
 
 #include "ast/arith_decl_plugin.h"
@@ -20,45 +31,33 @@
 #include "util/mpq.h"
 #include "util/vector.h"
 
+#define MAX_CLUSTER_SIZE 5
 using namespace spacer;
 namespace spacer {
 lemma_cluster_finder::lemma_cluster_finder(ast_manager &am)
     : m(am), m_arith(m), m_bv(m) {}
 
-// returns whether formulas differ only in interpreted constants
-bool lemma_cluster_finder::is_intrp_diff(expr_ref antiU_result,
-                                         substitution &s1, substitution &s2) {
-    SASSERT(s1.get_num_bindings() == s2.get_num_bindings());
-    expr_ref e(m), e2(m);
-    expr_offset r1, r2;
-    var_offset v1, v2;
-    for (unsigned j = 0, sz = s1.get_num_bindings(); j < sz; j++) {
-        s1.get_binding(j, v1, r1);
-        s2.get_binding(j, v2, r2);
-        if (!((m_arith.is_numeral(r1.get_expr()) &&
-               m_arith.is_numeral(r2.get_expr())) ||
-              ((m_bv.is_numeral(r1.get_expr()) &&
-                m_bv.is_numeral(r2.get_expr())))))
-          return false;
-    }
-    return true;
-}
-
+/// Check whether \p cube and \p lcube differ only in interpreted constants
 bool lemma_cluster_finder::are_neighbours(const expr_ref &cube,
                                           const expr_ref &lcube) {
+    SASSERT(is_ground(cube) && is_ground(lcube));
     anti_unifier anti(m);
     expr_ref pat(m);
     substitution sub1(m), sub2(m);
     anti(cube, lcube, pat, sub1, sub2);
-    return is_intrp_diff(pat, sub1, sub2);
+    SASSERT(sub1.get_num_bindings() == sub2.get_num_bindings());
+    return is_numeric_sub(sub1) && is_numeric_sub(sub2);
 }
 
-// Compute antiunification of cube with all formulas in fmls. should return
-// \exist res (\forall f \in fmls (\exist i_sub res[i_sub] == f)) however, the
-// algorithm is incomplete: it returns such a res iff the res \in {antiU(cube,
-// e) | e \in fmls}
-// TODO: do complete n-ary anti-unification. Not done now
-// because anti_unifier does not support free variables
+/// Compute antiunification of \p cube with all formulas in \p fmls.
+///
+/// Should return
+///         \exist res (\forall f \in fmls (\exist i_sub res[i_sub] == f))
+/// however, the algorithm is incomplete: it returns such a res iff
+///         res \in {antiU(cube,  e) | e \in fmls}
+/// Returns true if res is found
+/// TODO: do complete n-ary anti-unification. Not done now
+/// because anti_unifier does not support free variables
 bool lemma_cluster_finder::anti_unify_n_intrp(expr_ref &cube,
                                               expr_ref_vector &fmls,
                                               expr_ref &res) {
@@ -90,7 +89,6 @@ bool lemma_cluster_finder::anti_unify_n_intrp(expr_ref &cube,
     sem_matcher matcher(m);
     unsigned n_vars_pat = 0;
     for (expr *e : patterns) {
-
         TRACE("cluster_stats_verb",
               tout << "Checking pattern " << mk_pp(e, m) << "\n";);
         is_general_pattern = true;
@@ -122,26 +120,28 @@ bool lemma_cluster_finder::anti_unify_n_intrp(expr_ref &cube,
     return false;
 }
 
+/// Add \p lemma to a cluster. Attempt to create a new cluster if lemma does not
+/// belong to any existing clusters
 void lemma_cluster_finder::cluster(lemma_ref &lemma) {
     scoped_watch _w_(m_st.watch);
     pred_transformer &pt = (lemma->get_pob())->pt();
 
     // check whether lemmas has already been added
-    if (pt.get_cluster(lemma) != nullptr) return;
+    if (pt.clstr_contains(lemma)) return;
 
     // if the lemma matches a pattern of one of the clusters, but is not in it,
     // add it.
-    if (pt.clstr_match(lemma)) {
+    lemma_cluster *clstr = pt.clstr_match(lemma);
+    if (clstr && clstr->get_size() <= MAX_CLUSTER_SIZE) {
         TRACE("cluster_stats_verb", tout << "Trying to add lemma "
-                                         << lemma->get_cube()
-                                         << " to existing clusters\n";);
-        pt.add_to_cluster(lemma);
-
-        // avoid creating clusters with lemmas that can't be added to existing
-        // clusters
+              << lemma->get_cube()
+              << " to existing cluster ";
+              for (auto l
+                       : clstr->get_lemmas()) tout
+                                                  << l.get_lemma()->get_cube() << "\n";);
+        clstr->add_lemma(lemma);
         return;
     }
-
     // Check whether a new cluster can be formed
     lemma_ref_vector all_lemmas;
     pt.get_all_lemmas(all_lemmas, false);
@@ -157,7 +157,8 @@ void lemma_cluster_finder::cluster(lemma_ref &lemma) {
         cube.reset();
         cube = mk_and(l->get_cube());
         normalize_order(cube, cube);
-        if (are_neighbours(lcube, cube) && cube != lcube) {
+        // make sure that l is not in any other clusters
+        if (are_neighbours(lcube, cube) && cube != lcube && !pt.clstr_contains(l)) {
             neighbours.push_back(l);
             lma_cubes.push_back(cube);
         }
@@ -198,18 +199,24 @@ void lemma_cluster_finder::collect_statistics(statistics &st) const {
     st.update("time.spacer.solve.reach.cluster", m_st.watch.get_seconds());
 }
 
+/// Removes subsumed lemmas in the cluster. \p removed_lemmas is the list of
+/// removed lemmas
 void lemma_cluster ::rm_subsumed(lemma_info_vector &removed_lemmas) {
     removed_lemmas.reset();
     if (m_lemma_vec.size() <= 1) return;
+    // set up and run the simplifier
     tactic_ref simplifier = mk_unit_subsumption_tactic(m);
     goal_ref g(alloc(goal, m, false, false, false));
-
     goal_ref_buffer result;
     for (auto l : m_lemma_vec) { g->assert_expr(l.get_lemma()->get_expr()); }
     (*simplifier)(g, result);
     SASSERT(result.size() == 1);
+
+
     goal *r = result[0];
+    // nothing removed
     if (r->size() == m_lemma_vec.size()) return;
+    // collect removed lemmas
     lemma_info_vector non_subsumd_lemmas;
     for (auto l : m_lemma_vec) {
         bool found = false;
@@ -234,7 +241,9 @@ void lemma_cluster ::rm_subsumed(lemma_info_vector &removed_lemmas) {
     m_lemma_vec.append(non_subsumd_lemmas);
 }
 
-bool lemma_cluster ::match(const expr_ref &e, substitution &sub) {
+/// Checks whether \p e matches m_pattern.
+/// If so, returns the substitution that gets e from pattern
+bool lemma_cluster::match(const expr_ref &e, substitution &sub) {
     m_matcher.reset();
     bool pos;
     bool is_match = m_matcher(m_pattern.get(), e.get(), sub, pos);
@@ -247,14 +256,18 @@ bool lemma_cluster ::match(const expr_ref &e, substitution &sub) {
     // All the matches should be numerals
     for (unsigned i = 0; i < n_binds; i++) {
         sub.get_binding(i, var, r);
-        if (!(a_util.is_numeral(r.get_expr()) || bv.is_numeral(r.get_expr()))) return false;
+        if (!(a_util.is_numeral(r.get_expr()) || bv.is_numeral(r.get_expr())))
+            return false;
     }
     return true;
 }
 
-// Repetition of lemmas is avoided by doing a linear scan over the lemmas in the
-// cluster.
-bool lemma_cluster ::add_lemma(const lemma_ref &lemma, bool subs_check) {
+/// Try to add \p lemma to cluster. Remove subsumed lemmas if \p subs_check is true
+///
+/// Returns false if lemma does not match the pattern or if it is already in the cluster
+/// Repetition of lemmas is avoided by doing a linear scan over the lemmas in the
+/// cluster. Adding a lemma can reduce the size of the cluster due to subs_check
+bool lemma_cluster::add_lemma(const lemma_ref &lemma, bool subs_check) {
     substitution sub(m);
     sub.reserve(1, get_num_vars(m_pattern.get()));
     expr_ref cube(m);
@@ -271,7 +284,7 @@ bool lemma_cluster ::add_lemma(const lemma_ref &lemma, bool subs_check) {
         lemma_info_vector removed_lemmas;
         rm_subsumed(removed_lemmas);
         for (auto r_l : removed_lemmas) {
-            // There is going to atmost subsumed lemma that matches l_i
+            // There is going to atmost one subsumed lemma that matches l_i
             if (r_l.get_lemma() == l_i.get_lemma()) return false;
         }
     }

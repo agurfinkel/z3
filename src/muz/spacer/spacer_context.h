@@ -220,10 +220,11 @@ class lemma_cluster {
     lemma_info_vector m_lemma_vec;
     ast_manager &m;
     sem_matcher m_matcher;
-    // removes subsumptions and returns a list of removed lemmas
+    /// Remove subsumed lemmas in the cluster. \p removed_lemmas a list of
+    /// removed lemmas
     void rm_subsumed(lemma_info_vector &removed_lemmas);
-    // checks whether e matches pattern.
-    // If so, returns the substitution that gets e from pattern
+    /// Checks whether \p e matches m_pattern.
+    /// If so, returns the substitution that gets e from pattern
     bool match(const expr_ref &e, substitution &sub);
     // The number of times CSM has to be tried using this cluster
     unsigned m_gas;
@@ -243,8 +244,22 @@ class lemma_cluster {
         }
     }
 
-    // WARNING: Adding a lemma can reduce the size of the cluster due to
-    // subsumption check
+    /// Get a conjunction of all the lemmas in cluster
+    void get_conj_lemmas(expr_ref &e) const {
+        expr_ref_vector neg(m);
+        for (auto l : get_lemmas()) {
+            neg.push_back((l.get_lemma()->get_expr()));
+        }
+        e = mk_and(neg);
+    }
+
+    /// Try to add \p lemma to cluster. Remove subsumed lemmas if \p subs_check
+    /// is true
+    ///
+    /// Returns false if lemma does not match the pattern or if it is already in
+    /// the cluster Repetition of lemmas is avoided by doing a linear scan over
+    /// the lemmas in the cluster. Adding a lemma can reduce the size of the
+    /// cluster due to subs_check
     bool add_lemma(const lemma_ref &lemma, bool subs_check = false);
 
     bool contains(const lemma_ref &lemma) {
@@ -493,29 +508,24 @@ class pred_transformer {
         cluster_db() : m_max_cluster_size(0) {}
         unsigned get_max_cluster_size() const { return m_max_cluster_size; }
 
-        bool add_to_cluster(const lemma_ref &lemma) {
-            bool found = false;
+        /// Return the smallest cluster than can contain \p lemma
+        lemma_cluster *can_contain(const lemma_ref &lemma) {
+            unsigned sz = UINT_MAX;
+            lemma_cluster *res = nullptr;
             for (auto *c : m_clusters) {
-                if (c->add_lemma(lemma, true)) {
-                    found = true;
-                    // exiting on the first cluster to which the lemma belongs
-                    // to.
-                    break;
+                if (c->get_gas() > 0 && c->get_size() < sz && c->can_contain(lemma)) {
+                    res = c;
+                    sz = res->get_size();
                 }
             }
-            // Due to subsumption check, cluster sizes could have decreased
-            for (auto *c : m_clusters) {
-                m_max_cluster_size =
-                    std::max(m_max_cluster_size, c->get_size());
-            }
-            return found;
+            return res;
         }
 
-        lemma_cluster *can_contain(const lemma_ref &lemma) {
+        bool contains(const lemma_ref &lemma) {
             for (auto *c : m_clusters) {
-                if (c->can_contain(lemma)) { return c; }
+                if (c->contains(lemma)) { return true; }
             }
-            return nullptr;
+            return false;
         }
 
         lemma_cluster *mk_cluster(const expr_ref &pattern) {
@@ -523,11 +533,17 @@ class pred_transformer {
             return m_clusters.back();
         }
 
+        /// Return the smallest cluster containing \p lemma
         lemma_cluster *get_cluster(const lemma_ref &lemma) {
+            unsigned sz = UINT_MAX;
+            lemma_cluster *res = nullptr;
             for (lemma_cluster *lc : m_clusters) {
-                if (lc->contains(lemma)) return lc;
+                if (lc->get_size() < sz && lc->contains(lemma)) {
+                    res = lc;
+                    sz = res->get_size();
+                }
             }
-            return nullptr;
+            return res;
         }
 
         lemma_cluster *get_cluster(const expr *pattern) {
@@ -754,19 +770,19 @@ public:
         return m_cluster_db.mk_cluster(pattern);
     }
 
-    bool add_to_cluster(const lemma_ref &lemma) {
-        return m_cluster_db.add_to_cluster(lemma);
+    // Checks whether \p lemma is in any existing cluster
+    bool clstr_contains(const lemma_ref &lemma) {
+        return m_cluster_db.contains(lemma);
     }
 
-    // checks whether lemma CAN belong to any existing cluster
+    /// Checks whether \p lemma matches any cluster
     lemma_cluster *clstr_match(const lemma_ref &lemma) {
-        return m_cluster_db.can_contain(lemma);
+        lemma_cluster *res = m_cluster_db.get_cluster(lemma);
+        if (!res) res = m_cluster_db.can_contain(lemma);
+        return res;
     }
 
-    lemma_cluster *get_cluster(const lemma_ref &lemma) {
-        return m_cluster_db.get_cluster(lemma);
-    }
-
+    /// Returns a cluster with pattern \p pattern
     lemma_cluster *get_cluster(const expr *pattern) {
         return m_cluster_db.get_cluster(pattern);
     }

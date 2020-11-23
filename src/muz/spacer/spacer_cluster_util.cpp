@@ -266,11 +266,11 @@ void mul_by_rat(expr_ref &fml, rational num) {
     expr_ref e(m);
     SASSERT(m_arith.is_int_real(fml) || m_bv.is_bv(fml));
     if (m_arith.is_int_real(fml)) {
-        e = m_arith.mk_mul(m_arith.mk_numeral(num, num.is_int()), fml);
+        e = m_arith.mk_mul(m_arith.mk_numeral(num, m_arith.is_int(fml)), fml);
     }
     else if (m_bv.is_bv(fml)) {
         unsigned sz = m_bv.get_bv_size(fml);
-        e = m_bv.mk_bv_mul(m_bv.mk_numeral(num, sz), e);
+        e = m_bv.mk_bv_mul(m_bv.mk_numeral(num, sz), fml);
     }
     params_ref params;
     // poly_rewriter

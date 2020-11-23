@@ -241,10 +241,11 @@ void flatten_add(expr *t1, expr_ref_vector &res) {
 }
 
 void mk_add(expr *t1, expr *t2, expr_ref &res) {
-    expr_ref_vector f(res.get_manager());
-    flatten_add(t1, f);
-    flatten_add(t2, f);
-    mk_add(f, res);
+  SASSERT(t1 || t2);
+  expr_ref_vector f(res.get_manager());
+  flatten_add(t1, f);
+  flatten_add(t2, f);
+  mk_add(f, res);
 }
 
 bool unhandled(expr *f, expr *var, ast_manager &m) {
@@ -255,6 +256,8 @@ bool unhandled(expr *f, expr *var, ast_manager &m) {
     if (u.is_bv_smod(f) || u.is_bv_smodi(f) || u.is_bv_smod0(f)) return true;
     if (u.is_bv_urem(f) || u.is_bv_urem0(f) || u.is_bv_uremi(f)) return true;
     if (u.is_extract(f) || u.is_concat(f)) return true;
+    if (u.is_bvredor(f) || u.is_bvredand(f))
+      return true;
     for (auto a : *(to_app(f))) {
         if (!contains(a, var)) continue;
         return unhandled(a, var, m);
@@ -405,9 +408,9 @@ class eq : public rw_rule {
     bool apply(expr *e, expr_ref_vector &out) override {
         expr *lhs, *rhs;
         expr_ref b1(m), b2(m);
-        if (!(m.is_eq(e, lhs, rhs) &&
+        if (!(m.is_eq(e, lhs, rhs) && m_bv.is_bv(lhs) &&
               (contains(lhs, m_var) || contains(rhs, m_var))))
-            return false;
+          return false;
         b1 = m_bv.mk_ule(rhs, lhs);
         b2 = m_bv.mk_ule(lhs, rhs);
         if (m_mdl->is_true(b1) && m_mdl->is_true(b2)) {
@@ -425,9 +428,9 @@ class neq1 : public rw_rule {
     neq1(ast_manager &m) : rw_rule(m) {}
     bool apply(expr *e, expr_ref_vector &out) override {
         expr *f, *lhs, *rhs;
-        if (!(m.is_not(e, f) && m.is_eq(f, lhs, rhs) &&
+        if (!(m.is_not(e, f) && m.is_eq(f, lhs, rhs) && m_bv.is_bv(lhs) &&
               (contains(lhs, m_var) || contains(rhs, m_var))))
-            return false;
+          return false;
         expr_ref b1(m);
         b1 = m.mk_not(m_bv.mk_ule(rhs, lhs));
         if (m_mdl->is_true(b1)) {
@@ -444,9 +447,9 @@ class neq2 : public rw_rule {
     neq2(ast_manager &m) : rw_rule(m) {}
     bool apply(expr *e, expr_ref_vector &out) override {
         expr *f, *lhs, *rhs;
-        if (!((m.is_not(e, f)) && m.is_eq(f, lhs, rhs) &&
+        if (!((m.is_not(e, f)) && m.is_eq(f, lhs, rhs) && m_bv.is_bv(lhs) &&
               (contains(lhs, m_var) || contains(rhs, m_var))))
-            return false;
+          return false;
         expr_ref b1(m), nt(m);
         nt = m_bv.mk_ule(lhs, rhs);
         b1 = m.mk_not(nt);

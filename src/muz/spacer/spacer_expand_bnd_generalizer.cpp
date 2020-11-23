@@ -1,99 +1,138 @@
+/*++
+  Copyright (c) 2020 Arie Gurfinkel
+
+  Module Name:
+
+  spacer_expand_bnd_generalizer.cpp
+
+  Abstract:
+
+  Strengthen lemmas by changing numeral constants inside arithmetic literals
+
+  Author:
+
+  Hari Govind V K
+  Arie Gurfinkel
+
+
+--*/
+#include "muz/spacer/spacer_expand_bnd_generalizer.h"
 #include "ast/rewriter/expr_safe_replace.h"
-#include "muz/spacer/spacer_generalizers.h"
+namespace {
+/// Checks whether \p fml is an arithmetic inequality with a numeral \p val on
+/// the rhs
+bool is_ineq(ast_manager &m, const expr *fml, rational &val) {
+    expr *term, *num;
+    arith_util m_arith(m);
+    expr *not_fml;
+    if (m.is_not(fml, not_fml)) return is_ineq(m, not_fml, val);
+    if ((m_arith.is_le(fml, term, num) || m_arith.is_ge(fml, term, num)) &&
+        m_arith.is_numeral(num, val))
+        return true;
+    return false;
+}
+
+/// Replace RHS of \p fml with \p n
+void substitute(rational n, const expr *fml, expr_ref &res) {
+    SASSERT(is_app(fml));
+    ast_manager &m = res.get_manager();
+    rational val;
+    (void)val;
+    SASSERT(is_ineq(m, fml, val));
+    arith_util m_arith(m);
+    expr *not_fml;
+    if (m.is_not(fml, not_fml)) {
+        substitute(n, not_fml, res);
+        ::push_not(res);
+        return;
+    }
+    expr *lhs = to_app(fml)->get_arg(0);
+    res = m.mk_app(to_app(fml)->get_decl(), lhs,
+                   m_arith.mk_numeral(n, n.is_int()));
+}
+
+/// Substitute \p lit in \p fml with \p sub
+void substitute(expr_ref lit, expr_ref sub, expr_ref_vector &fml) {
+    fml.erase(lit.get());
+    fml.push_back(sub);
+}
+
+} // namespace
 namespace spacer {
 lemma_expand_bnd_generalizer::lemma_expand_bnd_generalizer(context &ctx)
     : lemma_generalizer(ctx), m(ctx.get_ast_manager()), m_arith(m) {
     for (auto &kv : ctx.get_pred_transformers()) {
-        kv.m_value->extract_nums(m_consts);
+        kv.m_value->extract_nums(m_values);
     }
 }
 
 void lemma_expand_bnd_generalizer::operator()(lemma_ref &lemma) {
     scoped_watch _w_(m_st.watch);
     if (lemma->get_pob()->expand_bnd()) {
-        // try expanding cvx bounds
-        expr_ref_vector conj = lemma->get_cube();
-        expr_ref_vector expand_expr(m), updt_conj(conj);
-        expr *num, *term;
-        expr_ref nw_bnd(m);
+        // try expanding bounds
+        const expr_ref_vector &conj = lemma->get_cube();
+        expr_ref_vector updt_conj(conj);
+        expr_ref bnd(m), new_bnd(m);
+        rational val;
         for (unsigned i = 0; i < conj.size(); i++) {
-            expr_ref bnd(conj.get(i), m);
-            if ((m_arith.is_le(bnd, term, num) ||
-                 m_arith.is_ge(bnd, term, num)) &&
-                m_arith.is_numeral(num)) {
-                TRACE("expand_bnd_verb",
-                      tout << "bnd is " << mk_pp(bnd, m) << "\n";);
-                expand_expr.reset();
-                for (expr *t : updt_conj)
-                    if (t != bnd.get()) expand_expr.push_back(t);
-                if (expand_bnd(lemma, bnd, expand_expr, nw_bnd)) {
-                    updt_conj.erase(bnd.get());
-                    // It is possible that the bnd was not required at all
-                    if (nw_bnd.get() != nullptr) updt_conj.push_back(nw_bnd);
-                }
+            bnd = conj.get(i);
+            if (!is_ineq(m, bnd, val)) continue;
+            if (!updt_conj.contains(bnd)) continue;
+            TRACE("expand_bnd", tout << "Attempting to expand " << bnd
+                                     << " inside " << conj << "\n";);
+            for (rational n : m_values) {
+                /// It could be the case that bnd has already been removed
+                if (!updt_conj.contains(bnd)) break;
+                if (!should_apply(bnd, n)) continue;
+                TRACE("expand_bnd", tout << "Attempting to expand " << bnd
+                                         << " with numeral " << n << "\n";);
+                substitute(n, bnd, new_bnd);
+                SASSERT(new_bnd.get() != nullptr);
+                substitute(bnd, new_bnd, updt_conj);
+                m_st.atmpts++;
+                if (check_ind_and_update(lemma, updt_conj)) { bnd = new_bnd; }
             }
         }
         lemma->get_pob()->stop_expand_bnd();
     }
 }
-void lemma_expand_bnd_generalizer::substitute(expr_ref var, rational n,
-                                              expr_ref fml, expr_ref &sub) {
-    expr_safe_replace s(m);
-    sub.reset();
-    s.insert(var, m_arith.mk_numeral(n, n.is_int()));
-    s(fml, sub);
-}
 
-bool lemma_expand_bnd_generalizer::expand_bnd(lemma_ref &lemma, expr_ref lit,
-                                              expr_ref_vector &conj,
-                                              expr_ref &nw_bnd) {
-    SASSERT(!conj.contains(lit));
-    TRACE("expand_bnd", tout << "Expanding bounds of " << conj
-                             << " with literal " << mk_pp(lit, m) << "\n";);
-    SASSERT(to_app(lit)->get_num_args() == 2);
-    expr_ref num = expr_ref(to_app(lit)->get_arg(1), m);
-    rational val;
-    bool is_int = false;
-    SASSERT(m_arith.is_numeral(num));
-    m_arith.is_numeral(num, val, is_int);
-    expr_ref n_lit(m);
-    if (!is_int) return false;
-    bool success = false;
-    for (rational n : m_consts) {
-        if (should_apply(lit, val, n)) {
-            m_st.atmpts++;
-            substitute(num, n, lit, n_lit);
-            conj.push_back(n_lit);
-            unsigned uses_level = 0;
-            TRACE("expand_bnd_verb",
-                  tout << "Attempting to update lemma with " << conj << "\n";);
-            bool is_ind = (lemma->get_pob())
-                              ->pt()
-                              .check_inductive(lemma->level(), conj, uses_level,
-                                               lemma->weakness());
+/// Check whether \p conj is a possible generalization for \p lemma.
+/// update \p lemma if it is.
+bool lemma_expand_bnd_generalizer::check_ind_and_update(lemma_ref &lemma,
+                                                        expr_ref_vector &conj) {
+    unsigned uses_level = 0;
+    TRACE("expand_bnd_verb",
+          tout << "Attempting to update lemma with " << conj << "\n";);
+    bool is_ind = (lemma->get_pob())
+                      ->pt()
+                      .check_inductive(lemma->level(), conj, uses_level,
+                                       lemma->weakness());
 
-            if (is_ind) {
-                m_st.success++;
-                lemma->update_cube(lemma->get_pob(), conj);
-                lemma->set_level(uses_level);
-                val = n;
-                TRACE("expand_bnd", tout << "expand_bnd succeeded with " << n
-                                         << " at level " << uses_level
-                                         << "\n";);
-                success = true;
-                nw_bnd = n_lit;
-                if (!conj.contains(n_lit.get())) {
-                    // The bnd was dropped entirely
-                    nw_bnd.reset();
-                    return true;
-                }
-            }
-            conj.pop_back();
-        }
+    if (is_ind) {
+        m_st.success++;
+        lemma->update_cube(lemma->get_pob(), conj);
+        lemma->set_level(uses_level);
+        TRACE("expand_bnd", tout << "expand_bnd succeeded with " << mk_and(conj)
+                                 << " at level " << uses_level << "\n";);
+        return true;
     }
-    return success;
+    return false;
+}
+/// Check whether \p n can be used to weaken lit
+bool lemma_expand_bnd_generalizer::should_apply(const expr *lit, rational n) {
+    rational val;
+    if (!is_ineq(m, lit, val)) return false;
+    return should_apply(lit, val, n);
 }
 
+/// Check whether lit ==> lit[val |--> n] (barring special cases). That is,
+/// whether \p lit becomes weaker if \p val is replaced with \p n
+///
+/// \p lit has to be of the form t <= v where v is a numeral.
+/// Special cases:
+/// In the trivial case in which \p val == \p n, return false.
+/// if lit is an equality or the negation of an equality, return true.
 bool lemma_expand_bnd_generalizer::should_apply(const expr *lit, rational val,
                                                 rational n) {
     // the only case in which negation and non negation agree
@@ -118,6 +157,7 @@ bool lemma_expand_bnd_generalizer::should_apply(const expr *lit, rational val,
         return false;
     }
 }
+
 void lemma_expand_bnd_generalizer::collect_statistics(statistics &st) const {
     st.update("time.spacer.solve.reach.gen.expand", m_st.watch.get_seconds());
     st.update("SPACER expand_bnd attmpts", m_st.atmpts);

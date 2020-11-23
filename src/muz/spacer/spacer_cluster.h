@@ -1,4 +1,23 @@
 #pragma once
+/*++
+Copyright (c) 2020 Arie Gurfinkel
+
+Module Name:
+
+  spacer_cluster.h
+
+Abstract:
+
+  Discover and mark lemma clusters
+
+Author:
+
+  Hari Govind V K
+  Arie Gurfinkel
+
+
+--*/
+
 #include "muz/spacer/spacer_context.h"
 namespace spacer {
 class lemma_cluster_finder {
@@ -11,18 +30,17 @@ class lemma_cluster_finder {
             watch.reset();
         }
     };
+    stats m_st;
     ast_manager &m;
     arith_util m_arith;
     bv_util m_bv;
     typedef std::pair<unsigned, unsigned> var_offset;
-    bool is_intrp_diff(expr_ref antiU_result, substitution &s1,
-                       substitution &s2);
 
+    /// Check whether \p cube and \p lcube differ only in interpreted constants
     bool are_neighbours(const expr_ref &cube, const expr_ref &lcube);
 
-    stats m_st;
-    // n-arry antiunify. Returns whether there is a substitution with only
-    // interpreted consts
+    /// N-ary antiunify. Returns whether there is a substitution with only
+    /// interpreted consts
     bool anti_unify_n_intrp(expr_ref &cube, expr_ref_vector &fmls,
                             expr_ref &res);
 

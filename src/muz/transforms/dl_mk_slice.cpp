@@ -57,6 +57,25 @@ Revision History:
 #include "muz/transforms/dl_mk_rule_inliner.h"
 #include "model/model_smt2_pp.h"
 
+namespace {
+/// check whether the variable \p i appears in the same position in the argument
+/// list of uninterpreted predicates \p a and \p b
+bool positions_differ(app *a, app *b, unsigned i) {
+  if (a->get_num_args() != b->get_num_args())
+    return true;
+  expr *p, *q;
+  bool p_isi, q_isi;
+  for (unsigned j = 0; j < a->get_num_args(); j++) {
+    p = a->get_arg(j);
+    p_isi = is_var(p) && to_var(p)->get_idx() == i;
+    q = b->get_arg(j);
+    q_isi = is_var(q) && to_var(q)->get_idx() == i;
+    if (p_isi ^ q_isi)
+      return true;
+  }
+  return false;
+}
+} // namespace
 namespace datalog {
 
     /**
@@ -541,7 +560,27 @@ namespace datalog {
                     m_var_is_sliceable[i] = false;
                 }
                 if (parameter_vars.contains(i)) {
+                  m_var_is_sliceable[i] = false;
+                }
+
+                uint_set vars;
+                for (unsigned j = 0; j < r.get_uninterpreted_tail_size(); j++) {
+                  app *pred = r.get_tail(j);
+                  vars.reset();
+                  add_free_vars(vars, pred);
+                  if (pred->get_decl() != r.get_head()->get_decl() &&
+                      vars.contains(i)) {
                     m_var_is_sliceable[i] = false;
+                    TRACE("dl", tout << "Cannot slice " << i
+                                     << " as argument appears in different "
+                                        "predicates\n";);
+                  }
+                  if (pred->get_decl() == r.get_head()->get_decl() &&
+                      positions_differ(pred, r.get_head(), i)) {
+                    m_var_is_sliceable[i] = false;
+                    TRACE("dl", tout << "Cannot slice " << i
+                                     << " as argument positions differ\n";);
+                  }
                 }
             }
             else if (is_output) {

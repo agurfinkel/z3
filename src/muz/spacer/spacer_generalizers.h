@@ -22,6 +22,7 @@ Revision History:
 #include "ast/arith_decl_plugin.h"
 #include "muz/spacer/spacer_context.h"
 #include "muz/spacer/spacer_global_generalizer.h"
+#include "muz/spacer/spacer_expand_bnd_generalizer.h"
 
 namespace spacer {
 
@@ -181,37 +182,6 @@ class limit_num_generalizer : public lemma_generalizer {
 
     void collect_statistics(statistics &st) const override;
     void reset_statistics() override { m_st.reset(); }
-};
-
-class lemma_expand_bnd_generalizer : public lemma_generalizer {
-    struct stats {
-        unsigned atmpts;
-        unsigned success;
-        stopwatch watch;
-        stats() { reset(); }
-        void reset() {
-            watch.reset();
-            atmpts = 0;
-            success = 0;
-        }
-    };
-    stats m_st;
-    ast_manager &m;
-    arith_util m_arith;
-    vector<rational> m_consts;
-
-  public:
-    lemma_expand_bnd_generalizer(context &ctx);
-    ~lemma_expand_bnd_generalizer() override {}
-    void operator()(lemma_ref &lemma) override;
-    void collect_statistics(statistics &st) const override;
-    void reset_statistics() override { m_st.reset(); }
-
-  private:
-    bool expand_bnd(lemma_ref &lemma, expr_ref lit, expr_ref_vector &res,
-                    expr_ref &nw_bnd);
-    void substitute(expr_ref var, rational n, expr_ref fml, expr_ref &sub);
-    bool should_apply(const expr *lit, rational val, rational n);
 };
 } // namespace spacer
 

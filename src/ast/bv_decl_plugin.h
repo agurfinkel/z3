@@ -304,6 +304,12 @@ public:
     bool is_concat(expr const * e) const { return is_app_of(e, get_fid(), OP_CONCAT); }
     bool is_extract(func_decl const * f) const { return is_decl_of(f, get_fid(), OP_EXTRACT); }
     bool is_extract(expr const * e) const { return is_app_of(e, get_fid(), OP_EXTRACT); }
+    bool is_bvredor(expr const *e) const {
+      return is_app_of(e, get_fid(), OP_BREDOR);
+    }
+    bool is_bvredand(expr const *e) const {
+      return is_app_of(e, get_fid(), OP_BREDAND);
+    }
     unsigned get_extract_high(func_decl const * f) const { return f->get_parameter(0).get_int(); }
     unsigned get_extract_low(func_decl const * f) const { return f->get_parameter(1).get_int(); }
     unsigned get_extract_high(expr const * n) const { SASSERT(is_extract(n)); return get_extract_high(to_app(n)->get_decl()); }

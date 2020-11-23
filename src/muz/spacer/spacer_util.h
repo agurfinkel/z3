@@ -158,9 +158,13 @@ namespace spacer {
     // linear. lit is the literal with the variable
     bool should_conjecture(const expr_ref &p, expr_ref &lit);
 
-    // drop all literals from n that match leq_lit. Returns whether some have
-    // been dropped or not
+    /// Drop all literals that numerically match \p lit, from \p fml_vec.
+    ///
+    /// \p abs_fml holds the result. Returns true if any literal has been dropped
     bool drop_lit(expr_ref_vector &in, expr_ref &lit, expr_ref_vector &out);
+
+    /// Returns true if range of s is numeric
+    bool is_numeric_sub(substitution &s);
 
     bool contains_mod(expr_ref e);
 
