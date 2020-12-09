@@ -53,6 +53,7 @@ Notes:
 #include "muz/spacer/spacer_cluster.h"
 #include "muz/spacer/spacer_sat_answer.h"
 #include "muz/spacer/spacer_concretize.h"
+#include "muz/spacer/spacer_datatype_util.h"
 
 #define WEAKNESS_MAX 65535
 
@@ -1591,7 +1592,13 @@ void pred_transformer::initialize(decl2rel const& pts)
     th_rewriter rw(m);
     rw(m_transition);
     rw(m_init);
-
+    sort_ref_vector datatypes(m);
+    get_datatype_sorts(m_transition, datatypes);
+    get_datatype_sorts(m_init, datatypes);
+    expr_ref_vector axioms(m);
+    get_selector_total_axioms(m, datatypes, axioms);
+    m_solver->assert_expr (mk_and(axioms));
+    m_reach_solver->assert_expr(mk_and(axioms));
     m_solver->assert_expr (m_transition);
     m_solver->assert_expr (m_init, 0);
     TRACE("spacer",
