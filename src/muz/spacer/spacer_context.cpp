@@ -52,7 +52,7 @@ Notes:
 #include "muz/spacer/spacer_qe_project.h"
 #include "muz/spacer/spacer_cluster.h"
 #include "muz/spacer/spacer_sat_answer.h"
-#include "spacer_concretize.h"
+#include "muz/spacer/spacer_concretize.h"
 
 #define WEAKNESS_MAX 65535
 
