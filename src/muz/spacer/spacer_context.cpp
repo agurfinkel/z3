@@ -2574,6 +2574,8 @@ bool context::validate() {
             ptr_vector<datalog::rule> const& rules = kv.m_value->rules();
             TRACE ("spacer", tout << "PT: " << kv.m_value->head ()->get_name ().str ()
                    << "\n";);
+            expr_ref_vector dt_axioms(m);
+            sort_ref_vector sorts(m);
             for (auto* rp : rules) {
                 datalog::rule& r = *rp;
 
@@ -2595,6 +2597,8 @@ bool context::validate() {
                     fmls.push_back(r.get_tail(j));
                 }
                 tmp = m.mk_and(fmls.size(), fmls.c_ptr());
+                get_datatype_sorts(tmp, sorts);
+                get_selector_total_axioms(m, sorts, dt_axioms);
                 svector<symbol> names;
                 expr_free_vars fv;
                 fv (tmp);
@@ -2609,6 +2613,7 @@ bool context::validate() {
                 }
                 ref<solver> sol =
                     mk_smt_solver(m, params_ref::get_empty(), symbol::null);
+                sol->assert_expr(dt_axioms);
                 sol->assert_expr(tmp);
                 lbool res = sol->check_sat(0, nullptr);
                 if (res != l_false) {
