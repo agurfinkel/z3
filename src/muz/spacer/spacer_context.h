@@ -1355,7 +1355,7 @@ class context {
     void predecessor_eh();
 
     void updt_params();
-    lbool handle_unknown(pob &n, const datalog::rule *r, model &model);
+    bool check_mdl(pob &n, const datalog::rule *r, model &model);
     bool mk_mdl_rf_consistent(model &mdl);
 
 public:

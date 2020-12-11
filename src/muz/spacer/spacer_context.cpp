@@ -3479,23 +3479,23 @@ bool context::mk_mdl_rf_consistent(model &mdl) {
     return true;
 }
 
-// Handle cases where solver returns unknown but returns a good enough model
+// Check whether \p model is good enough
 // model is good enough if it satisfies
 // 1. all the reachable states whose tag is set in the model
 // 2. Tr && pob
-lbool context::handle_unknown(pob &n, const datalog::rule *r, model &model) {
+bool context::check_mdl(pob &n, const datalog::rule *r, model &model) {
     if (r == nullptr) {
         if (model.is_true(n.post()) && mk_mdl_rf_consistent(model))
-            return l_true;
+            return true;
         else
-            return l_undef;
+            return false;
     }
     // model \models reach_fact && Tr && pob
     if (model.is_true(n.pt().get_transition(*r)) && model.is_true(n.post()) &&
         n.pt().mk_mdl_rf_consistent(r, model)) {
-        return l_true;
+        return true;
     }
-    return l_undef;
+    return false;
 }
 
 /// Checks whether the given pob is reachable
@@ -3595,7 +3595,7 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
         n.pt().is_reachable(n, &cube, &model, uses_level, is_concrete, r,
                             reach_pred_used, num_reuse_reach, m_use_iuc);
     if (model) model->set_model_completion(false);
-    if (res == l_undef && model) res = handle_unknown(n, r, *model);
+    if (res == l_undef && model) res =  check_mdl(n, r, *model)? l_true: l_undef;
 
     checkpoint ();
     IF_VERBOSE (1, verbose_stream () << "." << std::flush;);
