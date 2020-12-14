@@ -56,7 +56,7 @@ Notes:
 #include "muz/spacer/spacer_datatype_util.h"
 
 #define WEAKNESS_MAX 65535
-
+#define MAX_WEAKNESS 10
 namespace spacer {
 
 /// pob -- proof obligation
@@ -3669,7 +3669,7 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                             << " U " << std::fixed << std::setprecision(2)
                             << watch.get_seconds() << "\n";);
           return l_undef;
-        } else if (n.weakness() < 10) {
+        } else if (n.weakness() < MAX_WEAKNESS) {
           // Cannot create child. Increase weakness and try again.
           SASSERT(out.empty());
           n.bump_weakness();
@@ -3850,7 +3850,7 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
             m_stats.m_expand_pob_undef++;
             return l_undef;
         }
-        if (n.weakness() < 10 /* MAX_WEAKENSS */) {
+        if (n.weakness() < MAX_WEAKNESS) {
             bool has_new_child = false;
             SASSERT(m_weak_abs);
             m_stats.m_expand_pob_undef++;
