@@ -19,7 +19,7 @@ Author:
 
 #include "ast/rewriter/recfun_rewriter.h"
 #include "ast/rewriter/var_subst.h"
-    
+#include "ast/rewriter/bool_rewriter.h"
 br_status recfun_rewriter::mk_app_core(func_decl * f, unsigned num_args, expr * const * args, expr_ref & result) {
     if (m_rec.is_defined(f) && num_args > 0) {
         for (unsigned i = 0; i < num_args; ++i) {
@@ -33,6 +33,11 @@ br_status recfun_rewriter::mk_app_core(func_decl * f, unsigned num_args, expr * 
             return BR_FAILED;
         var_subst sub(m);
         result = sub(d.get_rhs(), num_args, args);
+        if (m.is_ite(result)) {
+            bool_rewriter m_b_rw(m);
+            app * r_tmp = to_app(result);
+            return m_b_rw.mk_ite_core(r_tmp->get_arg(0), r_tmp->get_arg(1), r_tmp->get_arg(2), result);
+        }
         return BR_REWRITE_FULL;
     }
     else {
