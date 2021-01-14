@@ -59,7 +59,16 @@ bool contains_real_cnsts(app_ref_vector &c) {
     }
     return false;
 }
-
+// check whether there is an equivalent of function \p f in LRA
+bool exists_lra_equiv(expr_ref &f) {
+    ast_manager &m = f.m();
+    arith_util a(m);
+    //uninterpreted constants do not have arguments. So equivalent function exists.
+    if (is_uninterp_const(f)) return true;
+    SASSERT(is_app(f));
+    func_decl *f_decl = to_app(f)->get_decl();
+    return f_decl->get_family_id() == a.get_family_id();
+}
 // Check whether there are Int constants in \p c
 bool contains_int_cnsts(app_ref_vector &c) {
     arith_util m_arith(c.get_manager());
@@ -241,7 +250,7 @@ static void to_int(expr_ref &fml) {
 static void to_real_term(expr_ref &fml, unsigned depth = 3) {
     ast_manager &m = fml.get_manager();
     arith_util arith(m);
-    array_util array(m);
+    datatype_util datatype(m);
     if (!arith.is_int_real(fml)) return;
     rational r;
     if (arith.is_numeral(fml, r)) {
@@ -267,18 +276,16 @@ static void to_real_term(expr_ref &fml, unsigned depth = 3) {
     expr_ref_buffer new_args(m);
     expr_ref child(m);
 
-    // handle arrays separately because sort of index/stored item needs to be
-    // preserved
-    if (array.is_select(fml) || array.is_store(fml)) {
+    if (!exists_lra_equiv(fml)) {
         new_args.push_back(args[0]);
         for (unsigned i = 1; i < num; i++) {
-            SASSERT(arith.is_int(args[i]));
             child = args[i];
             to_real_term(child, depth - 1);
             if (arith.is_int(args[i])) child = arith.mk_to_int(child);
             SASSERT(get_sort(args[i]) == get_sort(child));
             new_args.push_back(child);
         }
+        fml = m.mk_app(fml_app->get_decl(), new_args);
     } else {
         expr_ref child(m);
         for (unsigned i = 0; i < num; i++) {
@@ -286,9 +293,11 @@ static void to_real_term(expr_ref &fml, unsigned depth = 3) {
             to_real_term(child, depth - 1);
             new_args.push_back(child);
         }
+        // The mk_app method selects the function sort based on the sort of
+        // new_args
+        fml = m.mk_app(fml_app->get_family_id(), fml_app->get_decl_kind(),
+                       new_args.size(), new_args.c_ptr());
     }
-    fml = m.mk_app(fml_app->get_family_id(), fml_app->get_decl_kind(),
-                   new_args.size(), new_args.c_ptr());
     return;
 }
 
