@@ -57,7 +57,7 @@ br_status datatype_rewriter::mk_app_core(func_decl * f, unsigned num_args, expr 
         //
         SASSERT(num_args == 1);
         if (!is_app(args[0]) || !m_util.is_constructor(to_app(args[0]))) {
-            if (!is_app(args[0]) || contains_uninterp(args[0], m()))
+            if (!is_app(args[0]) || contains_uninterp(args[0], m()) || !is_ground(args[0]))
                 return BR_FAILED;
             else
                 result = m().mk_false();
