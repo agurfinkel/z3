@@ -39,6 +39,7 @@ Notes:
 #include "ast/array_decl_plugin.h"
 #include "ast/arith_decl_plugin.h"
 #include "ast/datatype_decl_plugin.h"
+#include "ast/recfun_decl_plugin.h"
 #include "ast/bv_decl_plugin.h"
 #include "ast/rewriter/rewriter.h"
 #include "ast/rewriter/rewriter_def.h"
@@ -590,6 +591,7 @@ namespace {
             implicant_picker ipick(mdl);
             ipick(formula, res);
         }
+        drop_rf_app(res);
         return res;
     }
 
@@ -1087,6 +1089,23 @@ namespace {
         } catch (const contains_real_ns::found &) { return true; }
     }
 
+    // remove all applications of rf in res;
+    void drop_rf_app(expr_ref_vector &res) {
+        if (res.empty()) return;
+        ast_manager &m(res.m());
+        recfun::util recfun(m);
+        expr *arg1, *arg2, *e;
+        unsigned i = 0, j = res.size() - 1;
+        for (; i <= j;) {
+            e = res.get(i);
+            if (!m.is_eq(e, arg1, arg2) || !recfun.is_defined(arg1)) i++;
+            else {
+                res.set(i, res.get(j));
+                j--;
+            }
+        }
+        res.shrink(i);
+    }
 } // namespace spacer
 template class rewriter_tpl<spacer::adhoc_rewriter_cfg>;
 template class rewriter_tpl<spacer::adhoc_rewriter_rpp>;

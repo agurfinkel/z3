@@ -182,5 +182,8 @@ namespace spacer {
 
     // get all numeral values in the formula
     void extract_nums(expr_ref fml, vector<rational> &res);
+    // remove all applications of rf in res;
+    void drop_rf_app(expr_ref_vector& res);
+
 }
 
