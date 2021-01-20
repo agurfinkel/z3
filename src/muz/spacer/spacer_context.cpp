@@ -213,8 +213,9 @@ void derivation::add_premise (pred_transformer &pt,
                               unsigned oidx,
                               expr* summary,
                               bool must,
-                              const ptr_vector<app> *aux_vars) {
-    m_premises.push_back (premise (pt, oidx, summary, must, aux_vars));
+                              const ptr_vector<app> *aux_vars,
+                              bool should_use) {
+    m_premises.push_back (premise (pt, oidx, summary, must, aux_vars, should_use));
 }
 
 
@@ -261,7 +262,7 @@ pob *derivation::create_next_child(model &mdl) {
     app_ref_vector vars(m);
 
     // -- find first may premise
-    while (m_active < m_premises.size() && m_premises[m_active].is_must()) {
+    while (m_active < m_premises.size() && m_premises[m_active].is_must() && !m_premises[m_active].should_use()) {
         summaries.push_back (m_premises[m_active].get_summary ());
         vars.append (m_premises[m_active].get_ovars ());
         ++m_active;
@@ -432,10 +433,10 @@ pob *derivation::create_next_child ()
 
 derivation::premise::premise (pred_transformer &pt, unsigned oidx,
                               expr *summary, bool must,
-                              const ptr_vector<app> *aux_vars) :
+                              const ptr_vector<app> *aux_vars, bool should_use) :
     m_pt (pt), m_oidx (oidx),
     m_summary (summary, pt.get_ast_manager ()), m_must (must),
-    m_ovars (pt.get_ast_manager ())
+    m_ovars (pt.get_ast_manager ()), m_should_use(should_use)
 {
 
     ast_manager &m = m_pt.get_ast_manager ();
@@ -461,6 +462,7 @@ void derivation::premise::set_summary (expr * summary, bool must,
     unsigned sig_sz = m_pt.head ()->get_arity ();
 
     m_must = must;
+    m_should_use = true;
     sm.formula_n2o (summary, m_summary, m_oidx);
 
     m_ovars.reset ();
@@ -4128,8 +4130,7 @@ bool context::create_children(pob& n, datalog::rule const& r,
             dealloc(deriv);
             return false;
         }
-        deriv->add_premise(pt, j, sum, is_reachable || reach_pred_used[j],
-                               aux);
+        deriv->add_premise(pt, j, sum, reach_pred_used[j], aux, !is_reachable);
     }
 
     // create post for the first child and add to queue
