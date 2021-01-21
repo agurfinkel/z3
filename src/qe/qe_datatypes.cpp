@@ -94,6 +94,7 @@ namespace qe {
                 if (solve(model, vars, lits[i].get(), rhs, eqs)) {
                     project_plugin::erase(lits, i);
                     reduce(rhs, lits);
+                    reduce(rhs, eqs);
                     lits.append(eqs);
                     return;
                 }
