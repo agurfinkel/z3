@@ -19,6 +19,28 @@ Notes:
 #include "ast/rewriter/datatype_rewriter.h"
 #include "ast/for_each_expr.h"
 namespace {
+namespace contains_partial_accessor_proc_ns {
+struct found {};
+struct contains_partial_accessor {
+  ast_manager &m;
+  datatype_util m_dt;
+  contains_partial_accessor(ast_manager &a_m) : m(a_m), m_dt(m) {}
+  void operator()(expr *n) const {}
+  void operator()(app *n) {
+      if (m_dt.is_accessor(n) && is_app(n->get_arg(0)) && m_dt.get_accessor_constructor(n->get_decl()) != to_app(n->get_arg(0))->get_decl())
+      throw found();
+  }
+};
+} // namespace contains_partial_accessor_ns
+bool contains_partial_accessor_app(expr *c, ast_manager &m) {
+  contains_partial_accessor_proc_ns::contains_partial_accessor t(m);
+  try {
+    for_each_expr(t, c);
+    return false;
+  } catch (const contains_partial_accessor_proc_ns::found &) {
+    return true;
+  }
+}
 namespace contains_uninterp_proc_ns {
     struct found{};
     struct contains_uninterp_proc {
@@ -56,8 +78,14 @@ br_status datatype_rewriter::mk_app_core(func_decl * f, unsigned num_args, expr 
         // simplify is_cons(nil) -> false
         //
         SASSERT(num_args == 1);
+        // During inductive generalization spacer drops literals like
+        // is_nil(tail(nil)) even though tail(nil) has been set to nil. the
+        // contains_partial_accessor_app() method prevents this from happening.
+        // now both is_nil(tail(nil)) and is_insert(tail(nil)) are true.
+        // TODO: fix this in a better way. Maybe use the model to interpret all
+        // partial accessor applications before it hits the rewriter.
         if (!is_app(args[0]) || !m_util.is_constructor(to_app(args[0]))) {
-            if (!is_app(args[0]) || contains_uninterp(args[0], m()) || !is_ground(args[0]))
+            if (!is_app(args[0]) || contains_uninterp(args[0], m()) || !is_ground(args[0]) || contains_partial_accessor_app(args[0], m()))
                 return BR_FAILED;
             else
                 result = m().mk_false();
