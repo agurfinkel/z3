@@ -4168,9 +4168,9 @@ bool context::create_children(pob& n, datalog::rule const& r,
     // -- not satisfy 'T && phi'. It is possible to recover from
     // -- that more gracefully. For now, we just remove the
     // -- derivation completely forcing it to be recomputed
-    if (m_weak_abs && (!mdl.is_true(pt.get_transition(r)) ||
-                       !mdl.is_true(n.post())))
-    { kid->reset_derivation(); }
+    // if (m_weak_abs && (!mdl.is_true(pt.get_transition(r)) ||
+                       // !mdl.is_true(n.post())))
+    // { kid->reset_derivation(); }
 
     if (kid->is_may_pob()) {
         SASSERT(n.get_gas() > 0);
