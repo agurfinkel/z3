@@ -4129,16 +4129,21 @@ bool context::create_children(pob& n, datalog::rule const& r,
 
         pred_transformer &pt = get_pred_transformer(preds.get(j));
         bool is_reachable = false;
-        if (is_rf_pred(preds.get(j))) {
-            expr_ref_vector args(m);
-            //get the arguments for pred
-            for (unsigned k = 0; k < preds.get(j)->get_arity(); k++) {
-                args.push_back(m.mk_const(m_pm.o2o(pt.sig(k), 0, j)));
-            }
-            SASSERT(args.size() == 2);
-            is_reachable =
-                check_mdl_rf(preds.get(j), args.get(0), args.get(1), mdl);
-        }
+        // if (is_rf_pred(preds.get(j))) {
+        //     expr_ref_vector args(m);
+        //     //get the arguments for pred
+        //     for (unsigned k = 0; k < preds.get(j)->get_arity(); k++) {
+        //         args.push_back(m.mk_const(m_pm.o2o(pt.sig(k), 0, j)));
+        //     }
+        //     SASSERT(args.size() == 2);
+        //     is_reachable =
+        //         check_mdl_rf(preds.get(j), args.get(0), args.get(1), mdl);
+        //     TRACE("spacer", tout << "checking values " << mk_pp(args.get(0), m)
+        //                          << " and " << mk_pp(args.get(1), m)
+        //                          << " val is " << is_reachable << "\n";
+        //           expr_ref res(m); res = mdl(args.get(0)); tout << res << " ";
+        //           res = mdl(args.get(1)); tout << res << "\n";);
+        // }
         const ptr_vector<app> *aux = nullptr;
         expr_ref sum(m);
         sum = pt.get_origin_summary (mdl, prev_level(n.level()),
