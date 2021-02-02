@@ -1093,7 +1093,10 @@ namespace {
     // TODO: reimpliment
     bool is_rf_pred(func_decl *pred) {
         std::string nm = pred->get_name().str();
-        return nm.find("length") != std::string::npos || nm.find("size") != std::string::npos || nm.find("sum") != std::string::npos;
+        return nm.find("length") != std::string::npos ||
+               nm.find("size") != std::string::npos ||
+               nm.find("sum") != std::string::npos ||
+               nm.find("prod") != std::string::npos;
     }
 
     // remove all applications of rf in res;
