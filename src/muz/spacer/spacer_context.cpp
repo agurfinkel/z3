@@ -263,7 +263,7 @@ pob *derivation::create_next_child(model &mdl) {
     app_ref_vector vars(m);
 
     // -- find first may premise
-    while (m_active < m_premises.size() && m_premises[m_active].is_must() && !m_premises[m_active].should_use()) {
+    while (m_active < m_premises.size() && (m_premises[m_active].is_must() || !m_premises[m_active].should_use())) {
         summaries.push_back (m_premises[m_active].get_summary ());
         vars.append (m_premises[m_active].get_ovars ());
         ++m_active;
