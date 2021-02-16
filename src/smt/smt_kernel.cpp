@@ -131,18 +131,6 @@ namespace smt {
         lbool find_mutexes(expr_ref_vector const& vars, vector<expr_ref_vector>& mutexes) {
             return m_kernel.find_mutexes(vars, mutexes);
         }
-
-        expr_ref get_implied_value(expr* e) {
-            return m_kernel.get_implied_value(e);
-        }
-
-        expr_ref get_implied_lower_bound(expr* e) {
-            return m_kernel.get_implied_lower_bound(e);
-        }
-
-        expr_ref get_implied_upper_bound(expr* e) {
-            return m_kernel.get_implied_upper_bound(e);
-        }
         
         void get_model(model_ref & m) {
             m_kernel.get_model(m);
@@ -233,13 +221,34 @@ namespace smt {
             m_kernel.updt_params(p);
         }
 
-        void register_user_propagator(
-            void* ctx, 
-            std::function<void(void*, unsigned, expr*)>& fixed_eh,
-            std::function<void(void*)>&                  push_eh,
-            std::function<void(void*, unsigned)>&        pop_eh) {
-            m_kernel.register_user_propagator(ctx, fixed_eh, push_eh, pop_eh);
+        void user_propagate_init(
+            void*                    ctx, 
+            solver::push_eh_t&       push_eh,
+            solver::pop_eh_t&        pop_eh,
+            solver::fresh_eh_t&      fresh_eh) {
+            m_kernel.user_propagate_init(ctx, push_eh, pop_eh, fresh_eh);
         }
+
+        void user_propagate_register_final(solver::final_eh_t& final_eh) {
+            m_kernel.user_propagate_register_final(final_eh);
+        }
+
+        void user_propagate_register_fixed(solver::fixed_eh_t& fixed_eh) {
+            m_kernel.user_propagate_register_fixed(fixed_eh);
+        }
+        
+        void user_propagate_register_eq(solver::eq_eh_t& eq_eh) {
+            m_kernel.user_propagate_register_eq(eq_eh);
+        }
+        
+        void user_propagate_register_diseq(solver::eq_eh_t& diseq_eh) {
+            m_kernel.user_propagate_register_diseq(diseq_eh);
+        }
+
+        unsigned user_propagate_register(expr* e) {
+            return m_kernel.user_propagate_register(e);
+        }
+        
     };
 
     kernel::kernel(ast_manager & m, smt_params & fp, params_ref const & p) {
@@ -326,7 +335,6 @@ namespace smt {
     lbool kernel::check(expr_ref_vector const& cube, vector<expr_ref_vector> const& clauses) {
         return m_imp->check(cube, clauses);
     }
-
 
     lbool kernel::get_consequences(expr_ref_vector const& assumptions, expr_ref_vector const& vars, expr_ref_vector& conseq, expr_ref_vector& unfixed) {
         return m_imp->get_consequences(assumptions, vars, conseq, unfixed);
@@ -441,26 +449,32 @@ namespace smt {
         return m_imp->get_trail();
     }
 
-    expr_ref kernel::get_implied_value(expr* e) {
-        return m_imp->get_implied_value(e);
+    void kernel::user_propagate_init(
+        void*                ctx, 
+        solver::push_eh_t&   push_eh,
+        solver::pop_eh_t&    pop_eh,
+        solver::fresh_eh_t&  fresh_eh) {
+        m_imp->user_propagate_init(ctx, push_eh, pop_eh, fresh_eh);
+    }
+
+    void kernel::user_propagate_register_fixed(solver::fixed_eh_t& fixed_eh) {
+        m_imp->user_propagate_register_fixed(fixed_eh);
     }
     
-    expr_ref kernel::get_implied_lower_bound(expr* e) {
-        return m_imp->get_implied_lower_bound(e);
+    void kernel::user_propagate_register_final(solver::final_eh_t& final_eh) {
+        m_imp->user_propagate_register_final(final_eh);
     }
     
-    expr_ref kernel::get_implied_upper_bound(expr* e) {
-        return m_imp->get_implied_upper_bound(e);
+    void kernel::user_propagate_register_eq(solver::eq_eh_t& eq_eh) {
+        m_imp->user_propagate_register_eq(eq_eh);
+    }
+    
+    void kernel::user_propagate_register_diseq(solver::eq_eh_t& diseq_eh) {
+        m_imp->user_propagate_register_diseq(diseq_eh);
     }
 
-    void kernel::register_user_propagator(
-        void* ctx, 
-        std::function<void(void*, unsigned, expr*)>& fixed_eh,
-        std::function<void(void*)>&                  push_eh,
-        std::function<void(void*, unsigned)>&        pop_eh) {
-        m_imp->register_user_propagator(ctx, fixed_eh, push_eh, pop_eh);
-    }
-
-
+    unsigned kernel::user_propagate_register(expr* e) {
+        return m_imp->user_propagate_register(e);
+    }        
 
 };

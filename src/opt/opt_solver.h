@@ -72,8 +72,7 @@ namespace opt {
         generic_model_converter& m_fm;
         progress_callback * m_callback;
         symbol              m_logic;
-        model_ref           m_model;
-        bool                m_was_sat;
+        model_ref           m_last_model;
         svector<smt::theory_var>  m_objective_vars;
         vector<inf_eps>     m_objective_values;
         sref_vector<model>  m_models;
@@ -111,9 +110,10 @@ namespace opt {
         void get_levels(ptr_vector<expr> const& vars, unsigned_vector& depth) override; 
         expr_ref_vector get_trail() override { return m_context.get_trail(); }
         expr_ref_vector cube(expr_ref_vector&, unsigned) override { return expr_ref_vector(m); }
-        expr_ref get_implied_value(expr* e) override { return m_context.get_implied_value(e); }
-        expr_ref get_implied_lower_bound(expr* e) override { return m_context.get_implied_lower_bound(e); }
-        expr_ref get_implied_upper_bound(expr* e) override { return m_context.get_implied_upper_bound(e); }
+        void set_phase(expr* e) override { m_context.set_phase(e); }
+        phase* get_phase() override { return m_context.get_phase(); }
+        void set_phase(phase* p) override { m_context.set_phase(p); }
+        void move_to_front(expr* e) override { m_context.move_to_front(e); }
 
         void set_logic(symbol const& logic);
 

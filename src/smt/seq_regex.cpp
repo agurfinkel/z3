@@ -25,11 +25,11 @@ namespace smt {
         th(th),
         ctx(th.get_context()),
         m(th.get_manager()),
-        m_state_to_expr(m)
-    {}
+        m_state_to_expr(m),
+        m_state_graph(state_graph::state_pp(this, pp_state)) { }
 
     seq_util& seq_regex::u() { return th.m_util; }
-    class seq_util::re& seq_regex::re() { return th.m_util.re; }
+    class seq_util::rex& seq_regex::re() { return th.m_util.re; }
     class seq_util::str& seq_regex::str() { return th.m_util.str; }
     seq_rewriter& seq_regex::seq_rw() { return th.m_seq_rewrite; }
     seq_skolem& seq_regex::sk() { return th.m_sk; }
@@ -55,7 +55,7 @@ namespace smt {
         expr* e = ctx.bool_var2expr(lit.var());
         expr_ref id(a().mk_int(e->get_id()), m);
         VERIFY(str().is_in_re(e, s, r));
-        sort* seq_sort = m.get_sort(s);
+        sort* seq_sort = s->get_sort();
         vector<expr_ref_vector> patterns;
         auto mk_cont = [&](unsigned idx) { 
             return sk().mk("seq.cont", id, a().mk_int(idx), seq_sort);
@@ -143,13 +143,46 @@ namespace smt {
             }
         }
 
+        /*
+        //if r is uninterpreted then taking a derivative may diverge try to obtain the 
+        //value from equations providing r a definition
+        if (is_uninterp(r)) {
+            if (m_const_to_expr.contains(r)) {
+                proof* _not_used = nullptr;
+                m_const_to_expr.get(r, r, _not_used);
+                if (is_uninterp(r)) {
+                    if (m_const_to_expr.contains(r)) {
+                        m_const_to_expr.get(r, r, _not_used);
+                    }
+                }
+            }
+            else {
+                //add the literal back
+                expr_ref r_alias(m.mk_fresh_const(symbol(r->get_id()), r->get_sort(), false), m);
+                expr_ref s_in_r_alias(re().mk_in_re(s, r_alias), m);
+                literal s_in_r_alias_lit = th.mk_literal(s_in_r_alias);
+                m_const_to_expr.insert(r_alias, r, nullptr);
+                th.add_axiom(s_in_r_alias_lit);
+                return;
+            }
+        }
+        */
+
+        /*
+        if (is_uninterp(r)) {
+            th.add_unhandled_expr(e);
+            return;
+        }
+        */
+
         expr_ref zero(a().mk_int(0), m);
-        expr_ref acc = sk().mk_accept(s, zero, r);
+        expr_ref acc(sk().mk_accept(s, zero, r), m);
         literal acc_lit = th.mk_literal(acc);
 
         TRACE("seq", tout << "propagate " << acc << "\n";);
 
-        th.propagate_lit(nullptr, 1, &lit, acc_lit);
+        //th.propagate_lit(nullptr, 1, &lit, acc_lit);
+        th.add_axiom(~lit, acc_lit);
     }
 
     /**
@@ -159,7 +192,7 @@ namespace smt {
     */
     expr_ref seq_regex::get_overapprox_regex(expr* s) {
         expr_ref s_to_re(re().mk_to_re(s), m);
-        expr_ref dotstar(re().mk_full_seq(m.get_sort(s_to_re)), m);
+        expr_ref dotstar(re().mk_full_seq(s_to_re->get_sort()), m);
         if (m.is_value(s)) 
             return s_to_re;
         
@@ -176,7 +209,7 @@ namespace smt {
                 last = e_approx;
             }
             if (!s_approx)
-                s_approx = re().mk_epsilon(m.get_sort(s));
+                s_approx = re().mk_epsilon(s->get_sort());
         
             return s_approx;
         }
@@ -245,12 +278,15 @@ namespace smt {
             return;
         }
 
-        update_state_graph(r);
-
-        if (m_state_graph.is_dead(get_state_id(r))) {
-            STRACE("seq_regex_brief", tout << "(dead) ";);
-            th.add_axiom(~lit);
-            return;
+        auto info = re().get_info(r);
+        if (info.interpreted) {
+            update_state_graph(r);
+            
+            if (m_state_graph.is_dead(get_state_id(r))) {
+                STRACE("seq_regex_brief", tout << "(dead) ";);
+                th.add_axiom(~lit);
+                return;
+            }
         }
 
         if (block_unfolding(lit, idx)) {
@@ -290,6 +326,8 @@ namespace smt {
                 literal is_nullable_lit = th.mk_literal(is_nullable);
                 ctx.mark_as_relevant(is_nullable_lit);
                 th.add_axiom(~lit, ~len_s_le_i, is_nullable_lit);
+                if (str().is_in_re(is_nullable))
+                    th.add_unhandled_expr(is_nullable);
             }
         }
 
@@ -341,7 +379,7 @@ namespace smt {
             if (entry.m_re == regex) 
                 continue;
 
-            th.m_trail_stack.push(vector_value_trail<theory_seq, s_in_re, true>(m_s_in_re, i));
+            th.m_trail_stack.push(vector_value_trail<s_in_re, true>(m_s_in_re, i));
             m_s_in_re[i].m_active = false;
             IF_VERBOSE(11, verbose_stream() << "Intersect " << regex << " " << 
                        mk_pp(entry.m_re, m) << " " << mk_pp(s, m) << " " << mk_pp(entry.m_s, m) << std::endl;);
@@ -352,7 +390,7 @@ namespace smt {
                 lits.push_back(~th.mk_eq(n1->get_owner(), n2->get_owner(), false));
         }
         m_s_in_re.push_back(s_in_re(lit, s, regex));
-        th.get_trail_stack().push(push_back_vector<theory_seq, vector<s_in_re>>(m_s_in_re));
+        th.get_trail_stack().push(push_back_vector<vector<s_in_re>>(m_s_in_re));
         if (lits.empty())
             return false;
         lits.push_back(~lit);
@@ -363,9 +401,11 @@ namespace smt {
 
     expr_ref seq_regex::symmetric_diff(expr* r1, expr* r2) {
         expr_ref r(m);
-        if (re().is_empty(r1)) 
-            std::swap(r1, r2);
-        if (re().is_empty(r2))
+        if (r1 == r2)
+            r = re().mk_empty(r1->get_sort());
+        else if (re().is_empty(r1)) 
+            r = r2;
+        else if (re().is_empty(r2))
             r = r1;
         else 
             r = re().mk_union(re().mk_diff(r1, r2), re().mk_diff(r2, r1));
@@ -418,7 +458,7 @@ namespace smt {
         STRACE("seq_regex", tout << "derivative(" << mk_pp(hd, m) << "): " << mk_pp(r, m) << std::endl;);
 
         // Use canonical variable for head
-        expr_ref hd_canon(m.mk_var(0, m.get_sort(hd)), m);
+        expr_ref hd_canon(m.mk_var(0, hd->get_sort()), m);
         expr_ref result(re().mk_derivative(hd_canon, r), m);
         rewrite(result);
 
@@ -439,23 +479,44 @@ namespace smt {
         TRACE("seq_regex", tout << "propagate EQ: " << mk_pp(r1, m) << ", " << mk_pp(r2, m) << std::endl;);
         STRACE("seq_regex_brief", tout << "PEQ ";);
 
+        /*
+        if (is_uninterp(r1) || is_uninterp(r2)) {
+            th.add_axiom(th.mk_eq(r1, r2, false));
+           if (is_uninterp(r1))
+                m_const_to_expr.insert(r1, r2, nullptr);
+            else 
+                m_const_to_expr.insert(r2, r1, nullptr);
+           
+        }
+        */
+
         sort* seq_sort = nullptr;
         VERIFY(u().is_re(r1, seq_sort));
-        expr_ref r = symmetric_diff(r1, r2);       
-        expr_ref emp(re().mk_empty(m.get_sort(r)), m);
-        expr_ref n(m.mk_fresh_const("re.char", seq_sort), m); 
-        expr_ref is_empty = sk().mk_is_empty(r, r, n);
+        expr_ref r = symmetric_diff(r1, r2);
+        if (re().is_empty(r))
+            //trivially true
+            return;
+        expr_ref emp(re().mk_empty(r->get_sort()), m);
+        expr_ref f(m.mk_fresh_const("re.char", seq_sort), m); 
+        expr_ref is_empty = sk().mk_is_empty(r, r, f);
+        // is_empty : (re,re,seq) -> Bool is a Skolem function 
+        // f is a fresh internal Skolem constant of sort seq
+        // the literal is satisfiable when emptiness check succeeds
+        // meaning that r is not nullable and 
+        // that all derivatives of r (if any) are also empty
+        // TBD: rewrite to use state_graph
         th.add_axiom(~th.mk_eq(r1, r2, false), th.mk_literal(is_empty));
     }
     
     void seq_regex::propagate_ne(expr* r1, expr* r2) {
         TRACE("seq_regex", tout << "propagate NEQ: " << mk_pp(r1, m) << ", " << mk_pp(r2, m) << std::endl;);
         STRACE("seq_regex_brief", tout << "PNEQ ";);
-
+        // TBD: rewrite to use state_graph
+        // why is is_non_empty even needed, why not just not(in_empty)
         sort* seq_sort = nullptr;
         VERIFY(u().is_re(r1, seq_sort));
         expr_ref r = symmetric_diff(r1, r2);
-        expr_ref emp(re().mk_empty(m.get_sort(r)), m);
+        expr_ref emp(re().mk_empty(r->get_sort()), m);
         expr_ref n(m.mk_fresh_const("re.char", seq_sort), m); 
         expr_ref is_non_empty = sk().mk_is_non_empty(r, r, n);
         th.add_axiom(th.mk_eq(r1, r2, false), th.mk_literal(is_non_empty));
@@ -490,6 +551,7 @@ namespace smt {
         expr_ref is_nullable = is_nullable_wrapper(r);
         if (m.is_true(is_nullable)) 
             return;
+
         literal null_lit = th.mk_literal(is_nullable);
         expr_ref hd = mk_first(r, n);
         expr_ref d(m);
@@ -565,6 +627,29 @@ namespace smt {
                     _temp_bool_owner.push_back(b);
                     re_to_bool.find(e) = b;
                 }
+                /*
+                else if (re().is_empty(e))
+                {
+                    re_to_bool.find(e) = m.mk_false();
+                }
+                else if (re().is_epsilon(e))
+                {
+                    expr* iplus1 = a().mk_int(i);
+                    expr* one = a().mk_int(1);
+                    _temp_bool_owner.push_back(iplus1);
+                    _temp_bool_owner.push_back(one);
+                    //the substring starting after position iplus1 must be empty
+                    expr* s_end = str().mk_substr(s, iplus1, one);
+                    expr* s_end_is_epsilon = m.mk_eq(s_end, str().mk_empty(m.get_sort(s)));
+
+                    _temp_bool_owner.push_back(s_end_is_epsilon);
+                    re_to_bool.find(e) = s_end_is_epsilon;
+
+                    STRACE("seq_regex_verbose", tout
+                        << "added empty sequence leaf: "
+                        << mk_pp(s_end_is_epsilon, m) << std::endl;);
+                }
+                */
                 else if (re().is_union(e, e1, e2)) {
                     expr* b1 = re_to_bool.find(e1);
                     expr* b2 = re_to_bool.find(e2);
@@ -759,13 +844,14 @@ namespace smt {
             STRACE("seq_regex", tout
                 << "New state ID: " << new_id
                 << " = " << mk_pp(e, m) << std::endl;);
+            SASSERT(get_expr_from_id(new_id) == e);
         }
         return m_expr_to_state.find(e);
     }
     expr* seq_regex::get_expr_from_id(unsigned id) {
         SASSERT(id >= 1);
         SASSERT(id <= m_state_to_expr.size());
-        return m_state_to_expr.get(id);
+        return m_state_to_expr.get(id - 1);
     }
 
 
@@ -793,11 +879,12 @@ namespace smt {
         }
         STRACE("seq_regex", tout << "Updating state graph for regex "
                                  << mk_pp(r, m) << ") ";);
-        if (!m_state_graph.is_seen(r_id))
-            STRACE("state_graph", tout << std::endl << "state(" << r_id << ") = " << seq_util::re::pp(re(), r) << std::endl;);
+        
+        STRACE("state_graph",
+            if (!m_state_graph.is_seen(r_id))
+                tout << std::endl << "state(" << r_id << ") = " << seq_util::rex::pp(re(), r) << std::endl << "info(" << r_id << ") = " << re().get_info(r) << std::endl;);
         // Add state
         m_state_graph.add_state(r_id);
-        STRACE("state_graph", tout << "regex(" << r_id << ") = " << mk_pp(r, m) << std::endl;);
         STRACE("seq_regex", tout << "Updating state graph for regex "
                                  << mk_pp(r, m) << ") " << std::endl;);
         STRACE("seq_regex_brief", tout << std::endl << "USG("
@@ -815,12 +902,12 @@ namespace smt {
             for (auto const& dr: derivatives) {
                 unsigned dr_id = get_state_id(dr);
                 STRACE("seq_regex_verbose", tout
-                    << std::endl << "  traversing deriv: " << dr_id << " ";);
-                if (!m_state_graph.is_seen(dr_id))
-                    STRACE("state_graph", tout << "state(" << dr_id << ") = " << seq_util::re::pp(re(), dr) << std::endl;);
+                    << std::endl << "  traversing deriv: " << dr_id << " ";);              
+                STRACE("state_graph",
+                    if (!m_state_graph.is_seen(dr_id))
+                        tout << "state(" << dr_id << ") = " << seq_util::rex::pp(re(), dr) << std::endl << "info(" << dr_id << ") = " << re().get_info(dr) << std::endl;);
                 // Add state
                 m_state_graph.add_state(dr_id);
-                STRACE("state_graph", tout << "regex(" << dr_id << ") = " << mk_pp(dr, m) << std::endl;);
                 bool maybecycle = can_be_in_cycle(r, dr);
                 m_state_graph.add_edge(r_id, dr_id, maybecycle);
             }

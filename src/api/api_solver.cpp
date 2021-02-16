@@ -79,22 +79,24 @@ extern "C" {
     }
 
     void solver2smt2_pp::check(unsigned n, expr* const* asms) {
-        for (unsigned i = 0; i < n; ++i) {
+        for (unsigned i = 0; i < n; ++i) 
             m_pp_util.collect(asms[i]);
-        }
         m_pp_util.display_decls(m_out);
         m_out << "(check-sat";        
-        for (unsigned i = 0; i < n; ++i) {
+        for (unsigned i = 0; i < n; ++i) 
             m_pp_util.display_expr(m_out << "\n", asms[i]);            
-        }
-        for (expr* e : m_tracked) {
+        for (expr* e : m_tracked) 
             m_pp_util.display_expr(m_out << "\n", e);
-        }
         m_out << ")\n";
         m_out.flush();
     }
 
     void solver2smt2_pp::get_consequences(expr_ref_vector const& assumptions, expr_ref_vector const& variables) {
+        for (expr* a : assumptions)
+            m_pp_util.collect(a);
+        for (expr* v : variables)
+            m_pp_util.collect(v);
+        m_pp_util.display_decls(m_out);        
         m_out << "(get-consequences (";
         for (expr* f : assumptions) {
             m_out << "\n";
@@ -105,7 +107,7 @@ extern "C" {
             m_out << "\n";
             m_pp_util.display_expr(m_out, f);
         }
-        m_out << ")\n";
+        m_out << "))\n";
         m_out.flush();
     }
 
@@ -258,9 +260,8 @@ extern "C" {
         bool initialized = to_solver(s)->m_solver.get() != nullptr;
         if (!initialized)
             init_solver(c, s);
-        for (expr* e : ctx->tracked_assertions()) {
+        for (expr* e : ctx->tracked_assertions()) 
             to_solver(s)->assert_expr(e);
-        }
         to_solver_ref(s)->set_model_converter(ctx->get_model_converter());
     }
 
@@ -366,22 +367,23 @@ extern "C" {
         LOG_Z3_solver_set_params(c, s, p);
         RESET_ERROR_CODE();
 
-        symbol logic = to_param_ref(p).get_sym("smt.logic", symbol::null);
+        auto &params = to_param_ref(p);
+        symbol logic = params.get_sym("smt.logic", symbol::null);
         if (logic != symbol::null) {
             to_solver(s)->m_logic = logic;
         }
         if (to_solver(s)->m_solver) {
             bool old_model = to_solver(s)->m_params.get_bool("model", true);
-            bool new_model = to_param_ref(p).get_bool("model", true);
+            bool new_model = params.get_bool("model", true);
             if (old_model != new_model)
                 to_solver_ref(s)->set_produce_models(new_model);
             param_descrs r;
             to_solver_ref(s)->collect_param_descrs(r);
             context_params::collect_solver_param_descrs(r);
-            to_param_ref(p).validate(r);
-            to_solver_ref(s)->updt_params(to_param_ref(p));
+            params.validate(r);
+            to_solver_ref(s)->updt_params(params);
         }
-        to_solver(s)->m_params.append(to_param_ref(p));
+        to_solver(s)->m_params.append(params);
 
         init_solver_log(c, s);
         
@@ -558,39 +560,6 @@ extern "C" {
         Z3_CATCH_RETURN(nullptr);
     }
 
-    Z3_ast Z3_API Z3_solver_get_implied_value(Z3_context c, Z3_solver s, Z3_ast e) {
-        Z3_TRY;
-        LOG_Z3_solver_get_implied_value(c, s, e);
-        RESET_ERROR_CODE();
-        init_solver(c, s);
-        expr_ref v = to_solver_ref(s)->get_implied_value(to_expr(e));
-        mk_c(c)->save_ast_trail(v);
-        RETURN_Z3(of_ast(v));
-        Z3_CATCH_RETURN(nullptr);
-    }
-
-    Z3_ast Z3_API Z3_solver_get_implied_lower(Z3_context c, Z3_solver s, Z3_ast e) {
-        Z3_TRY;
-        LOG_Z3_solver_get_implied_lower(c, s, e);
-        RESET_ERROR_CODE();
-        init_solver(c, s);
-        expr_ref v = to_solver_ref(s)->get_implied_lower_bound(to_expr(e));
-        mk_c(c)->save_ast_trail(v);
-        RETURN_Z3(of_ast(v));
-        Z3_CATCH_RETURN(nullptr);
-    }
-
-    Z3_ast Z3_API Z3_solver_get_implied_upper(Z3_context c, Z3_solver s, Z3_ast e) {
-        Z3_TRY;
-        LOG_Z3_solver_get_implied_upper(c, s, e);
-        RESET_ERROR_CODE();
-        init_solver(c, s);
-        expr_ref v = to_solver_ref(s)->get_implied_upper_bound(to_expr(e));
-        mk_c(c)->save_ast_trail(v);
-        RETURN_Z3(of_ast(v));
-        Z3_CATCH_RETURN(nullptr);
-    }
-
     static Z3_lbool _solver_check(Z3_context c, Z3_solver s, unsigned num_assumptions, Z3_ast const assumptions[]) {
         for (unsigned i = 0; i < num_assumptions; i++) {
             if (!is_expr(to_ast(assumptions[i]))) {
@@ -727,6 +696,7 @@ extern "C" {
         to_solver_ref(s)->collect_statistics(st->m_stats);
         get_memory_statistics(st->m_stats);
         get_rlimit_statistics(mk_c(c)->m().limit(), st->m_stats);
+        to_solver_ref(s)->collect_timer_stats(st->m_stats);
         mk_c(c)->save_object(st);
         Z3_stats r = of_stats(st);
         RETURN_Z3(r);
@@ -886,5 +856,94 @@ extern "C" {
         Z3_CATCH_RETURN(nullptr);
     }
 
+    class api_context_obj : public solver::context_obj {
+        api::context* c;
+    public:
+        api_context_obj(api::context* c):c(c) {}
+        ~api_context_obj() override { dealloc(c); }
+    };
+
+    void Z3_API Z3_solver_propagate_init(
+        Z3_context  c, 
+        Z3_solver   s, 
+        void*       user_context,
+        Z3_push_eh  push_eh,
+        Z3_pop_eh   pop_eh,
+        Z3_fresh_eh fresh_eh) {
+        Z3_TRY;
+        RESET_ERROR_CODE();
+        init_solver(c, s);
+        solver::push_eh_t _push = push_eh;
+        solver::pop_eh_t _pop = pop_eh;
+        solver::fresh_eh_t _fresh = [&](void * user_ctx, ast_manager& m, solver::context_obj*& _ctx) {
+            context_params params;
+            params.set_foreign_manager(&m);
+            auto* ctx = alloc(api::context, &params, false);
+            _ctx = alloc(api_context_obj, ctx);
+            return fresh_eh(user_ctx, reinterpret_cast<Z3_context>(ctx));
+        };
+        to_solver_ref(s)->user_propagate_init(user_context, _push, _pop, _fresh);
+        Z3_CATCH;
+    }
+
+    void Z3_API Z3_solver_propagate_fixed(
+        Z3_context  c, 
+        Z3_solver   s,
+        Z3_fixed_eh fixed_eh) {
+        Z3_TRY;
+        RESET_ERROR_CODE();
+        solver::fixed_eh_t _fixed = (void(*)(void*,solver::propagate_callback*,unsigned,expr*))fixed_eh; 
+        to_solver_ref(s)->user_propagate_register_fixed(_fixed);
+        Z3_CATCH;        
+    }
+
+    void Z3_API Z3_solver_propagate_final(
+        Z3_context  c, 
+        Z3_solver   s,
+        Z3_final_eh final_eh) {
+        Z3_TRY;
+        RESET_ERROR_CODE();
+        solver::final_eh_t _final = (bool(*)(void*,solver::propagate_callback*))final_eh;
+        to_solver_ref(s)->user_propagate_register_final(_final);
+        Z3_CATCH;        
+    }
+
+    void Z3_API Z3_solver_propagate_eq(
+        Z3_context  c, 
+        Z3_solver   s,
+        Z3_eq_eh eq_eh) {
+        Z3_TRY;
+        RESET_ERROR_CODE();
+        solver::eq_eh_t _eq = (void(*)(void*,solver::propagate_callback*,unsigned,unsigned))eq_eh;
+        to_solver_ref(s)->user_propagate_register_eq(_eq);
+        Z3_CATCH;        
+    }
+
+    void Z3_API Z3_solver_propagate_diseq(
+        Z3_context  c, 
+        Z3_solver   s,
+        Z3_eq_eh    diseq_eh) {
+        Z3_TRY;
+        RESET_ERROR_CODE();
+        solver::eq_eh_t _diseq = (void(*)(void*,solver::propagate_callback*,unsigned,unsigned))diseq_eh;
+        to_solver_ref(s)->user_propagate_register_diseq(_diseq);
+        Z3_CATCH;        
+    }
+
+    unsigned Z3_API Z3_solver_propagate_register(Z3_context c, Z3_solver s, Z3_ast e) {
+        Z3_TRY;
+        LOG_Z3_solver_propagate_register(c, s, e);
+        RESET_ERROR_CODE();
+        return to_solver_ref(s)->user_propagate_register(to_expr(e));
+        Z3_CATCH_RETURN(0);
+    }
+
+    void Z3_API Z3_solver_propagate_consequence(Z3_context c, Z3_solver_callback s, unsigned num_fixed, unsigned const* fixed_ids, unsigned num_eqs, unsigned const* eq_lhs, unsigned const* eq_rhs, Z3_ast conseq) {
+        Z3_TRY;
+        LOG_Z3_solver_propagate_consequence(c, s, num_fixed, fixed_ids, num_eqs, eq_lhs, eq_rhs, conseq);
+        RESET_ERROR_CODE();
+        reinterpret_cast<solver::propagate_callback*>(s)->propagate_cb(num_fixed, fixed_ids, num_eqs, eq_lhs, eq_rhs, to_expr(conseq));
+        Z3_CATCH;        
+    }
 
 };

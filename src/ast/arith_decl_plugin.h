@@ -245,7 +245,7 @@ public:
     bool is_unsigned(expr const * n, unsigned& u) const { 
         rational val;
         bool is_int = true;
-        return is_numeral(n, val, is_int) && is_int && val.is_unsigned(), u = val.get_unsigned(), true; 
+        return is_numeral(n, val, is_int) && is_int && val.is_unsigned() && (u = val.get_unsigned(), true); 
     }
     bool is_numeral(expr const * n, rational & val, bool & is_int) const;
     bool is_numeral(expr const * n, rational & val) const { bool is_int; return is_numeral(n, val, is_int); }
@@ -294,13 +294,14 @@ public:
     bool is_to_int(expr const * n) const { return is_app_of(n, m_afid, OP_TO_INT); }
     bool is_is_int(expr const * n) const { return is_app_of(n, m_afid, OP_IS_INT); }
     bool is_power(expr const * n) const { return is_app_of(n, m_afid, OP_POWER); }
+    bool is_power0(expr const * n) const { return is_app_of(n, m_afid, OP_POWER0); }
 
     bool is_int(sort const * s) const { return is_sort_of(s, m_afid, INT_SORT); }
-    bool is_int(expr const * n) const { return is_int(get_sort(n)); }
+    bool is_int(expr const * n) const { return is_int(n->get_sort()); }
     bool is_real(sort const * s) const { return is_sort_of(s, m_afid, REAL_SORT); }
-    bool is_real(expr const * n) const { return is_real(get_sort(n)); }
+    bool is_real(expr const * n) const { return is_real(n->get_sort()); }
     bool is_int_real(sort const * s) const { return s->get_family_id() == m_afid; }
-    bool is_int_real(expr const * n) const { return is_int_real(get_sort(n)); }
+    bool is_int_real(expr const * n) const { return is_int_real(n->get_sort()); }
 
     bool is_sin(expr const* n) const { return is_app_of(n, m_afid, OP_SIN); }
     bool is_cos(expr const* n) const { return is_app_of(n, m_afid, OP_COS); }
@@ -410,6 +411,9 @@ public:
     app * mk_int(int i) {
         return mk_numeral(rational(i), true);
     }
+    app * mk_int(unsigned i) {
+        return mk_numeral(rational(i), true);
+    }
     app * mk_int(rational const& r) {
         return mk_numeral(r, true);
     }
@@ -494,6 +498,12 @@ public:
     expr_ref mk_add_simplify(unsigned sz, expr* const* args);
 
     bool is_considered_uninterpreted(func_decl* f, unsigned n, expr* const* args, func_decl_ref& f_out);
+
+    bool is_underspecified(expr* e) const;
+
+    bool is_bounded(expr* e) const;
+
+    bool is_extended_numeral(expr* e, rational& r) const;
 
 };
 

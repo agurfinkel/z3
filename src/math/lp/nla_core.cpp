@@ -10,6 +10,7 @@ Author:
     Nikolaj Bjorner (nbjorner)
 
 --*/
+#include "util/uint_set.h"
 #include "math/lp/nla_core.h"
 #include "math/lp/factorization_factory_imp.h"
 #include "math/lp/nex.h"
@@ -1452,6 +1453,30 @@ bool core::integrality_holds() {
     return false;
 }
 
+/**
+ * Cycle through different end-game solvers weighted by probability.
+ */
+void core::check_weighted(unsigned sz, std::pair<unsigned, std::function<void(void)>>* checks) {
+    unsigned bound = 0;
+    for (unsigned i = 0; i < sz; ++i) 
+        bound += checks[i].first;
+    uint_set seen;
+    while (bound > 0 && !done() && m_lemma_vec->empty()) {
+        unsigned n = random() % bound;
+        for (unsigned i = 0; i < sz; ++i) {
+            if (seen.contains(i))
+                continue;
+            if (n < checks[i].first) {
+                seen.insert(i);
+                checks[i].second();
+                bound -= checks[i].first;
+                break;
+            }
+            n -= checks[i].first;
+        }
+    }
+}
+
 
 lbool core::check(vector<lemma>& l_vec) {
     lp_settings().stats().m_nla_calls++;
@@ -1467,7 +1492,7 @@ lbool core::check(vector<lemma>& l_vec) {
     init_to_refine();
     patch_monomials();
     set_use_nra_model(false);    
-    if (m_to_refine.is_empty()) { return l_true; }   
+    if (m_to_refine.empty()) { return l_true; }   
     init_search();
 
     lbool ret = l_undef;
@@ -1478,29 +1503,35 @@ lbool core::check(vector<lemma>& l_vec) {
     if (l_vec.empty() && !done() && need_run_horner()) 
         m_horner.horner_lemmas();
 
-    if (l_vec.empty() && !done() && need_run_grobner()) {
+    if (l_vec.empty() && !done() && need_run_grobner()) 
         run_grobner();                
-    }
 
     if (l_vec.empty() && !done()) 
         m_basics.basic_lemma(true);    
 
     if (l_vec.empty() && !done()) 
         m_basics.basic_lemma(false);
-    
-    if (l_vec.empty() && !done()) 
-        m_order.order_lemma();    
 
     if (l_vec.empty() && !done()) {
-        if (!done())
-            m_monotone.monotonicity_lemma();
-        if (!done())
-            m_tangents.tangent_lemma();
+        std::function<void(void)> check1 = [&]() { m_order.order_lemma(); };
+        std::function<void(void)> check2 = [&]() { m_monotone.monotonicity_lemma(); };
+        std::function<void(void)> check3 = [&]() { m_tangents.tangent_lemma(); };
+        
+        std::pair<unsigned, std::function<void(void)>> checks[] = 
+            { { 6, check1 }, 
+              { 2, check2 }, 
+              { 1, check3 }};
+        check_weighted(3, checks);
+
+        if (!conflict_found() && m_nla_settings.run_nra() && random() % 30 == 0) {
+            ret = m_nra.check();
+            m_stats.m_nra_calls++;
+        }
     }
 
-    if (l_vec.empty() && !done() && m_nla_settings.run_nra()) {
+    if (l_vec.empty() && !done() && m_nla_settings.run_nra() && ret == l_undef) {
         ret = m_nra.check();
-        m_stats.m_nra_calls ++;
+        m_stats.m_nra_calls++;
     }
     
     if (ret == l_undef && !l_vec.empty() && m_reslim.inc()) 
@@ -1904,3 +1935,4 @@ void core::collect_statistics(::statistics & st) {
 
 
 } // end of nla
+

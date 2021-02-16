@@ -66,7 +66,8 @@ void order::order_lemma_on_binomial(const monic& ac) {
         order_lemma_on_binomial_sign(ac, ac.vars()[k], ac.vars()[!k], gt? 1: -1);
         order_lemma_on_factor_binomial_explore(ac, k);
         k = !k; 
-    } while (k);
+    } 
+    while (k);
 }
 
 
@@ -101,9 +102,8 @@ void order::order_lemma_on_factor_binomial_explore(const monic& ac, bool k) {
             continue;
         TRACE("nla_solver", tout << "bd = " << pp_mon_with_vars(_(), bd););
         order_lemma_on_factor_binomial_rm(ac, k, bd);
-        if (done()) {
+        if (done()) 
             break;
-        }
     }
 }
 
@@ -199,20 +199,21 @@ bool order::order_lemma_on_ac_and_bc(const monic& rm_ac,
 }
 
 
-// Here ab is a binary factorization of m.
+// Here m = ab, that is ab is binary factorization of m.
 // We try to find a monic n = cd, such that |b| = |d| 
-// and get a lemma m R n & |b| = |d| => ab/|b| R cd /|d|, where R is a relation
+// and get lemma m R n & |b| = |d| => ab/|b| R cd /|d|, where R is a relation
 void order::order_lemma_on_factorization(const monic& m, const factorization& ab) {
-    bool sign = m.rsign();
-    for (factor f: ab)
-        sign ^= _().canonize_sign(f);
+    bool sign = false;
+    for (factor f: ab)  
+        sign ^= f.sign();
     const rational rsign = sign_to_rat(sign);
     const rational fv = val(var(ab[0])) * val(var(ab[1]));
     const rational mv = rsign * var_val(m);
     TRACE("nla_solver",
           tout << "ab.size()=" << ab.size() << "\n";
-          tout << "we should have sign*var_val(m):" << mv << "=(" << rsign << ")*(" << var_val(m) <<") to be equal to " << " val(var(ab[0]))*val(var(ab[1])):" << fv << "\n";);
-    TRACE("nla_solver", tout << "m="; _().print_monic_with_vars(m, tout); tout << "\nfactorization="; _().print_factorization(ab, tout););
+          tout << "we should have mv =" << mv << " = " << fv << " = fv\n";
+          tout << "m = "; _().print_monic_with_vars(m, tout); tout << "\nab ="; _().print_factorization(ab, tout););
+
     if (mv != fv && !c().has_real(m)) {            
         bool gt = mv > fv;
         for (unsigned j = 0, k = 1; j < 2; j++, k--) {
@@ -262,7 +263,7 @@ void order::generate_ol_eq(const monic& ac,
     // ac == bc
     lemma |= ineq(c.var(), llc::EQ, 0); // c is not equal to zero
     lemma |= ineq(term(ac.var(), -rational(1), bc.var()), llc::NE, 0);
-    lemma |= ineq(term(sign_to_rat(canonize_sign(a)), a.var(), sign_to_rat(!canonize_sign(b)), b.var()), llc::EQ, 0);
+    lemma |= ineq(term(a.rat_sign(), a.var(), -b.rat_sign(), b.var()), llc::EQ, 0);
     lemma &= ac;
     lemma &= a;
     lemma &= bc;
@@ -287,9 +288,14 @@ void order::generate_ol(const monic& ac,
     // c > 0 and ac <= bc => a <= b
     // c < 0 and ac >= bc => a <= b
     // c < 0 and ac <= bc => a >= b
+
+    
     lemma |= ineq(c.var(), val(c.var()).is_neg() ? llc::GE : llc::LE, 0);
-    lemma |= ineq(term(ac.var(), -rational(1), bc.var()), val(ac.var()) < val(bc.var()) ? llc::GT : llc::LT, 0);
-    lemma |= ineq(term(a.var(),  -rational(1), b.var()),  val(a.var())  < val(b.var())  ? llc::GE : llc::LE, 0);
+    lemma |= ineq(term(rational(1), ac.var(), -rational(1), bc.var()), var_val(ac) < var_val(bc) ? llc::GT : llc::LT, 0);
+    // The value of factor k is val(k) = k.rat_sign()*val(k.var()).
+    // That is why we need to use the factor signs of a and b in the term,
+    // but the constraint of the lemma is defined by val(a) and val(b).
+    lemma |= ineq(term(a.rat_sign(), a.var(),  -b.rat_sign(), b.var()),  val(a)  < val(b)  ? llc::GE : llc::LE, 0);
 
     lemma &= ac;
     lemma &= a;
@@ -310,7 +316,7 @@ bool order::order_lemma_on_ac_and_bc_and_factors(const monic& ac,
     SASSERT(!val(c).is_zero());
     rational c_sign = rational(nla::rat_sign(val(c)));
     auto av_c_s = val(a) * c_sign;
-    auto bv_c_s = val(b) * c_sign;        
+    auto bv_c_s = val(b) * c_sign;      
     if ((var_val(ac) > var_val(bc) && av_c_s < bv_c_s) ||
         (var_val(ac) < var_val(bc) && av_c_s > bv_c_s)) {
         generate_ol(ac, a, c, bc, b);

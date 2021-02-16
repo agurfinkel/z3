@@ -382,11 +382,19 @@ namespace opt {
             model_ref md = m->copy();
             fix_model(md);
         }
+        if (m_on_model_eh && m) {
+            model_ref md = m->copy();
+            if (!m_model_fixed.contains(md.get()))
+                fix_model(md);
+            m_on_model_eh(m_on_model_ctx, md);
+            m_model_fixed.pop_back();
+        }
     }
 
 
     void context::get_model_core(model_ref& mdl) {
         mdl = m_model;
+        CTRACE("opt", mdl, tout << *mdl;);
         fix_model(mdl);
         if (mdl) mdl->set_model_completion(true);
         CTRACE("opt", mdl, tout << *mdl;);
@@ -665,7 +673,7 @@ namespace opt {
         opt_params p(m_params);        
         if (p.optsmt_engine() == symbol("symba") ||
             p.optsmt_engine() == symbol("farkas")) {
-            auto str = std::to_string(AS_OPTINF);
+            auto str = std::to_string((unsigned)(arith_solver_id::AS_OPTINF));
             gparams::set("smt.arith.solver", str.c_str());
         }
     }
@@ -819,7 +827,14 @@ namespace opt {
                      mk_simplify_tactic(m));   
         opt_params optp(m_params);
         tactic_ref tac1, tac2, tac3, tac4;
-        if (optp.elim_01() && m_logic.is_null()) {
+        bool has_dep = false;
+        for (unsigned i = 0; !has_dep && i < g->size(); ++i) {
+            ptr_vector<expr> deps;
+            expr_dependency_ref core(g->dep(i), m);
+            m.linearize(core, deps);           
+            has_dep |= !deps.empty();
+        }
+        if (optp.elim_01() && m_logic.is_null() && !has_dep) {
             tac1 = mk_dt2bv_tactic(m);
             tac2 = mk_lia2card_tactic(m);
             tac3 = mk_eq2bv_tactic(m);
@@ -1001,7 +1016,7 @@ namespace opt {
     expr* context::mk_objective_fn(unsigned index, objective_t ty, unsigned sz, expr*const* args) {
         ptr_vector<sort> domain;
         for (unsigned i = 0; i < sz; ++i) {
-            domain.push_back(m.get_sort(args[i]));
+            domain.push_back(args[i]->get_sort());
         }
         char const* name = "";
         switch(ty) {
@@ -1179,7 +1194,7 @@ namespace opt {
     app* context::purify(generic_model_converter_ref& fm, expr* term) {
        std::ostringstream out;
        out << mk_pp(term, m);
-       app* q = m.mk_fresh_const(out.str(), m.get_sort(term));
+       app* q = m.mk_fresh_const(out.str(), term->get_sort());
        if (!fm) fm = alloc(generic_model_converter, m, "opt");
        if (m_arith.is_int_real(term)) {
            m_hard_constraints.push_back(m_arith.mk_ge(q, term));

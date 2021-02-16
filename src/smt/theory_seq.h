@@ -31,7 +31,6 @@ Revision History:
 #include "smt/theory_seq_empty.h"
 #include "smt/seq_skolem.h"
 #include "smt/seq_axioms.h"
-#include "smt/seq_unicode.h"
 #include "smt/seq_regex.h"
 #include "smt/seq_offset_eq.h"
 
@@ -282,20 +281,22 @@ namespace smt {
             }
         };
 
-        class push_replay : public trail<theory_seq> {
+        class push_replay : public trail {
+            theory_seq& th;
             apply* m_apply;
         public:
-            push_replay(apply* app): m_apply(app) {}
-            void undo(theory_seq& th) override {
+            push_replay(theory_seq& th, apply* app): th(th), m_apply(app) {}
+            void undo() override {
                 th.m_replay.push_back(m_apply);
             }
         };
 
-        class pop_branch : public trail<theory_seq> {
+        class pop_branch : public trail {
+            theory_seq& th;
             unsigned k;
         public:
-            pop_branch(unsigned k): k(k) {}
-            void undo(theory_seq& th) override {
+            pop_branch(theory_seq& th, unsigned k): th(th), k(k) {}
+            void undo() override {
                 th.m_branch_start.erase(k);
             }
         };
@@ -356,7 +357,6 @@ namespace smt {
         arith_util       m_autil;
         seq_skolem       m_sk;
         seq_axioms       m_ax;
-        seq_unicode      m_unicode;
         seq_regex        m_regex;
         arith_value      m_arith_value;
         th_trail_stack   m_trail_stack;
@@ -461,6 +461,7 @@ namespace smt {
         bool solve_unit_eq(expr* l, expr* r, dependency* dep);
         bool solve_unit_eq(expr_ref_vector const& l, expr_ref_vector const& r, dependency* dep);
         bool solve_nth_eq1(expr_ref_vector const& ls, expr_ref_vector const& rs, dependency* dep);
+        obj_pair_hashtable<expr, expr> m_nth_eq2_cache;
         bool solve_nth_eq2(expr_ref_vector const& ls, expr_ref_vector const& rs, dependency* dep);
         bool solve_itos(expr_ref_vector const& ls, expr_ref_vector const& rs, dependency* dep);
         bool solve_itos(expr* n, expr_ref_vector const& rs, dependency* dep);
@@ -478,11 +479,11 @@ namespace smt {
         bool reduce_length(unsigned i, unsigned j, bool front, expr_ref_vector const& ls, expr_ref_vector const& rs, dependency* deps);
 
         expr_ref mk_empty(sort* s) { return expr_ref(m_util.str.mk_empty(s), m); }
-        expr_ref mk_concat(unsigned n, expr*const* es) { return expr_ref(m_util.str.mk_concat(n, es, m.get_sort(es[0])), m); }
+        expr_ref mk_concat(unsigned n, expr*const* es) { return expr_ref(m_util.str.mk_concat(n, es, es[0]->get_sort()), m); }
         expr_ref mk_concat(unsigned n, expr*const* es, sort* s) { return expr_ref(m_util.str.mk_concat(n, es, s), m); }
         expr_ref mk_concat(expr_ref_vector const& es, sort* s) { return mk_concat(es.size(), es.c_ptr(), s); }
-        expr_ref mk_concat(expr_ref_vector const& es) { SASSERT(!es.empty());  return expr_ref(m_util.str.mk_concat(es.size(), es.c_ptr(), m.get_sort(es[0])), m); }
-        expr_ref mk_concat(ptr_vector<expr> const& es) { SASSERT(!es.empty()); return mk_concat(es.size(), es.c_ptr(), m.get_sort(es[0])); }
+        expr_ref mk_concat(expr_ref_vector const& es) { SASSERT(!es.empty());  return expr_ref(m_util.str.mk_concat(es.size(), es.c_ptr(), es[0]->get_sort()), m); }
+        expr_ref mk_concat(ptr_vector<expr> const& es) { SASSERT(!es.empty()); return mk_concat(es.size(), es.c_ptr(), es[0]->get_sort()); }
         expr_ref mk_concat(expr* e1, expr* e2) { return expr_ref(m_util.str.mk_concat(e1, e2), m); }
         expr_ref mk_concat(expr* e1, expr* e2, expr* e3) { return expr_ref(m_util.str.mk_concat(e1, e2, e3), m); }
         bool solve_nqs(unsigned i);

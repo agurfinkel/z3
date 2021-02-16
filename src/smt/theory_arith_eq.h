@@ -319,10 +319,11 @@ namespace smt {
     void theory_arith<Ext>::propagate_eq_to_core(theory_var x, theory_var y, antecedents& antecedents) {
         // Ignore equality if variables are already known to be equal.
         ast_manager& m = get_manager();
+        (void)m;
         if (is_equal(x, y))
             return;
         // I doesn't make sense to propagate an equality (to the core) of variables of different sort.
-        if (m.get_sort(var2expr(x)) != m.get_sort(var2expr(y))) {
+        if (var2expr(x)->get_sort() != var2expr(y)->get_sort()) {
             TRACE("arith", tout << mk_pp(var2expr(x), m) << " = " << mk_pp(var2expr(y), m) << "\n";);
             return;
         }

@@ -93,13 +93,7 @@ namespace smt {
     }
     
     unsigned enode::get_num_th_vars() const {
-        unsigned r = 0;
-        theory_var_list const * l = get_th_var_list();
-        while(l) {
-            r++;
-            l = l->get_next();
-        }
-        return r;
+        return m_th_var_list.size();
     }
     
     /**
@@ -109,44 +103,14 @@ namespace smt {
        with a variable of theory th_id
     */
     theory_var enode::get_th_var(theory_id th_id) const {
-        if (m_th_var_list.get_th_var() == null_theory_var)
-            return null_theory_var;
-        theory_var_list const * l = &m_th_var_list;
-        while (l) {
-            if (l->get_th_id() == th_id) {
-                return l->get_th_var();
-            }
-            l = l->get_next();
-        }
-        return null_theory_var;
+        return m_th_var_list.find(th_id);
     }
     
     /**
        \brief Add the entry (v, id) to the list of theory variables.
     */
     void enode::add_th_var(theory_var v, theory_id id, region & r) {
-#ifdef Z3DEBUG
-        unsigned old_size = get_num_th_vars();
-#endif
-        SASSERT(get_th_var(id) == null_theory_var);
-        if (m_th_var_list.get_th_var() == null_theory_var) {
-            m_th_var_list.set_th_var(v);
-            m_th_var_list.set_th_id(id);
-            m_th_var_list.set_next(nullptr);
-        }
-        else {
-            theory_var_list * l = &m_th_var_list;
-            while (l->get_next() != nullptr) {
-                SASSERT(l->get_th_id() != id);
-                l = l->get_next();
-            }
-            SASSERT(l); 
-            SASSERT(l->get_next() == 0);
-            theory_var_list * new_cell = new (r) theory_var_list(id, v);
-            l->set_next(new_cell);
-        }
-        SASSERT(get_num_th_vars() == old_size + 1);
-        SASSERT(get_th_var(id) == v);
+        m_th_var_list.add_var(v, id, r);
     }
     
     /**
@@ -154,16 +118,7 @@ namespace smt {
        The enode must have an entry (v', id)
     */
     void enode::replace_th_var(theory_var v, theory_id id) {
-        SASSERT(get_th_var(id) != null_theory_var);
-        theory_var_list * l = get_th_var_list();
-        while (l) {
-            if (l->get_th_id() == id) {
-                l->set_th_var(v);
-                return;
-            }
-            l = l->get_next();
-        }
-        UNREACHABLE();
+        m_th_var_list.replace(v, id);
     }
 
     /**
@@ -171,33 +126,7 @@ namespace smt {
        enode is associated with a variable of the given theory.
     */
     void enode::del_th_var(theory_id id) {
-        SASSERT(get_th_var(id) != null_theory_var);
-        if (m_th_var_list.get_th_id() == id) {
-            theory_var_list * next = m_th_var_list.get_next();
-            if (next == nullptr) {
-                // most common case
-                m_th_var_list.set_th_var(null_theory_var);
-                m_th_var_list.set_th_id(null_theory_id);
-                m_th_var_list.set_next(nullptr);
-            }
-            else {
-                m_th_var_list = *next;
-            }
-        }
-        else {
-            theory_var_list * prev = get_th_var_list();
-            theory_var_list * l    = prev->get_next();
-            while (l) {
-                SASSERT(prev->get_next() == l);
-                if (l->get_th_id() == id) {
-                    prev->set_next(l->get_next());
-                    return;
-                }
-                prev = l;
-                l    = l->get_next();
-            }
-            UNREACHABLE();
-        }
+        m_th_var_list.del_var(id);
     }
 
     
@@ -208,7 +137,7 @@ namespace smt {
     void enode::set_generation(context & ctx, unsigned generation) {
         if (m_generation == generation)
             return;
-        ctx.push_trail(value_trail<context, unsigned>(m_generation));
+        ctx.push_trail(value_trail<unsigned>(m_generation));
         m_generation = generation;
     }
 
@@ -218,13 +147,13 @@ namespace smt {
         // m_lbl_hash should be different from -1, if and only if,
         // there is a pattern that contains the enode. So,
         // I use a trail to restore the value of m_lbl_hash to -1.
-        ctx.push_trail(value_trail<context, signed char>(m_lbl_hash));
+        ctx.push_trail(value_trail<signed char>(m_lbl_hash));
         unsigned h = hash_u(get_owner_id());
         m_lbl_hash = h & (APPROX_SET_CAPACITY - 1);
         // propagate modification to the root m_lbls set.
         approx_set & r_lbls = m_root->m_lbls;
         if (!r_lbls.may_contain(m_lbl_hash)) {
-            ctx.push_trail(value_trail<context, approx_set>(r_lbls));
+            ctx.push_trail(value_trail<approx_set>(r_lbls));
             r_lbls.insert(m_lbl_hash);
         }
     }

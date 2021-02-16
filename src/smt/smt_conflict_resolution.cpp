@@ -794,6 +794,11 @@ namespace smt {
         if (is_eq && is_quantifier(f2)) {
             f2 = m_ctx.get_enode(f2)->get_owner();
         }
+        if (m.is_false(fact) && !m_ctx.is_true(n2) && !m_ctx.is_false(n2)) {          
+            pr = m.mk_hypothesis(m.mk_eq(n1_owner, n2_owner));
+            m_new_proofs.push_back(pr);
+            return pr;
+        }
         if (!is_eq || (f1 != n2_owner && f2 != n2_owner)) {
             CTRACE("norm_eq_proof_bug", !m_ctx.is_true(n2) && !m_ctx.is_false(n2),
                    tout << "n1: #" << n1->get_owner_id() << ", n2: #" << n2->get_owner_id() << "\n";
@@ -839,8 +844,7 @@ namespace smt {
         unsigned num_args;
         switch (js.get_kind()) {
         case eq_justification::AXIOM:
-            UNREACHABLE();
-            return nullptr;
+            return m.mk_hypothesis(m.mk_eq(n1->get_expr(), n2->get_expr()));
         case eq_justification::EQUATION:
             TRACE("proof_gen_bug", tout << js.get_literal() << "\n"; m_ctx.display_literal_info(tout, js.get_literal()););
             return norm_eq_proof(n1, n2, get_proof(js.get_literal()));
@@ -1137,9 +1141,8 @@ namespace smt {
         while (lhs != rhs) {
             eq_justification js = lhs->m_trans.m_justification;
             switch (js.get_kind()) {
-            case eq_justification::AXIOM:
-                UNREACHABLE();
-                break;
+            case eq_justification::AXIOM: 
+                break;            
             case eq_justification::EQUATION:
                 if (get_proof(js.get_literal()) == nullptr)
                     visited = false;
@@ -1256,8 +1259,7 @@ namespace smt {
 
     void conflict_resolution::mk_conflict_proof(b_justification conflict, literal not_l) {
         SASSERT(conflict.get_kind() != b_justification::BIN_CLAUSE);
-        SASSERT(conflict.get_kind() != b_justification::AXIOM);
-        SASSERT(not_l == null_literal || conflict.get_kind() == b_justification::JUSTIFICATION);
+        SASSERT(not_l == null_literal || conflict.get_kind() == b_justification::AXIOM || conflict.get_kind() == b_justification::JUSTIFICATION);
         TRACE("mk_conflict_proof", m_ctx.display_literals(tout << "lemma literals:", m_lemma) << "\n";);
 
         reset();
@@ -1350,6 +1352,7 @@ namespace smt {
             m_lemma_proof = pr;
         else
             m_lemma_proof = m.mk_lemma(pr, fact);
+        TRACE("mk_conflict_proof", tout << mk_pp(m_lemma_proof, m) << "\n";);
         m_new_proofs.reset();
         reset();
     }

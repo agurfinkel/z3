@@ -26,7 +26,7 @@ Revision History:
 
 namespace smt {
 
-    class already_processed_trail : public trail<context> {
+    class already_processed_trail : public trail {
         // Remark: it is safer to use a trail object, because it guarantees that the enodes
         // are still alive when the undo operation is performed.
         //
@@ -42,7 +42,7 @@ namespace smt {
             m_n2(n2) {
         }
         
-        void undo(context & ctx) override {
+        void undo() override {
             m_already_processed.erase(m_n1, m_n2);
             TRACE("arith_eq_adapter_profile", tout << "del #" << m_n1->get_owner_id() << " #" << m_n2->get_owner_id() << "\n";);
         }
@@ -81,6 +81,7 @@ namespace smt {
     };
 
     void arith_eq_adapter::mk_axioms(enode * n1, enode * n2) {
+        context & ctx = get_context();
         if (n1 == n2)
             return;
         ast_manager & m = get_manager();
@@ -90,6 +91,13 @@ namespace smt {
             std::swap(n1, n2);
         app * t1        = n1->get_owner();
         app * t2        = n2->get_owner();
+        if (m.are_distinct(t1, t2)) {
+            expr_ref eq(m.mk_eq(t1, t2), m);
+            ctx.internalize(eq, true);
+            literal lit(ctx.get_bool_var(eq));
+            ctx.assign(~lit, nullptr, false);
+            return;
+        }
         if (m.is_value(t1) && m.is_value(t2)) {
             // Nothing to be done
             // We don't need to create axioms for 2 = 3
@@ -99,7 +107,6 @@ namespace smt {
             return;
         }
         
-        context & ctx = get_context();
         CTRACE("arith_eq_adapter_relevancy", !(ctx.is_relevant(n1) && ctx.is_relevant(n2)),
                tout << "is_relevant(n1): #" << n1->get_owner_id() << " " << ctx.is_relevant(n1) << "\n";
                tout << "is_relevant(n2): #" << n2->get_owner_id() << " " << ctx.is_relevant(n2) << "\n";
@@ -111,7 +118,7 @@ namespace smt {
         // after n1 and n2 are marked as relevant.
         //
         data d;
-        if (m_already_processed.find(n1, n2, d))
+        if (m_already_processed.find(n1, n2, d)) 
             return;
         
         TRACE("arith_eq_adapter_profile", tout << "mk #" << n1->get_owner_id() << " #" << n2->get_owner_id() << " " <<
@@ -123,8 +130,7 @@ namespace smt {
               tout << "mk_detail " << mk_bounded_pp(n1->get_owner(), m, 5) << " " << 
               mk_bounded_pp(n2->get_owner(), m, 5) << "\n";);
         
-        app_ref t1_eq_t2(m);
-        
+        app_ref t1_eq_t2(m);        
         t1_eq_t2 = ctx.mk_eq_atom(t1, t2);
         SASSERT(!m.is_false(t1_eq_t2));
         
@@ -164,7 +170,7 @@ namespace smt {
             ge = m_util.mk_ge(t1, t2);
         }        
         else {
-            sort * st       = m.get_sort(t1);
+            sort * st       = t1->get_sort();
             app_ref minus_one(m_util.mk_numeral(rational::minus_one(), st), m);
             app_ref zero(m_util.mk_numeral(rational::zero(), st), m);
             app_ref t3(m_util.mk_mul(minus_one, t2), m);
@@ -253,13 +259,13 @@ namespace smt {
         context & ctx = get_context();
         TRACE("arith_eq_adapter", tout << "restart\n";);
         enode_pair_vector tmp(m_restart_pairs);
-        enode_pair_vector::iterator it  =  tmp.begin();
-        enode_pair_vector::iterator end =  tmp.end();
         m_restart_pairs.reset();
-        for (; it != end && !ctx.inconsistent(); ++it) {
-            TRACE("arith_eq_adapter", tout << "creating arith_eq_adapter axioms at the base level #" << it->first->get_owner_id() << " #" <<
-                  it->second->get_owner_id() << "\n";);
-            mk_axioms(it->first, it->second);
+        for (auto const& p : tmp) {
+            if (ctx.inconsistent())
+                break;
+            TRACE("arith_eq_adapter", tout << "creating arith_eq_adapter axioms at the base level #" << p.first->get_owner_id() << " #" <<
+                  p.second->get_owner_id() << "\n";);
+            mk_axioms(p.first, p.second);
         }
     }
 
@@ -268,11 +274,9 @@ namespace smt {
     }
 
     void arith_eq_adapter::display_already_processed(std::ostream & out) const {
-        obj_pair_map<enode, enode, data>::iterator it  = m_already_processed.begin();
-        obj_pair_map<enode, enode, data>::iterator end = m_already_processed.end();
-        for (; it != end; ++it) {
-            enode * n1 = it->get_key1();
-            enode * n2 = it->get_key2();
+        for (auto const& d : m_already_processed) {
+            enode * n1 = d.get_key1();
+            enode * n2 = d.get_key2();
             out << "eq_adapter: #" << n1->get_owner_id() << " #" << n2->get_owner_id() << "\n";
         }
     }

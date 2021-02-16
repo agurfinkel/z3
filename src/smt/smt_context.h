@@ -18,6 +18,7 @@ Revision History:
 --*/
 #pragma once
 
+#include "ast/quantifier_stat.h"
 #include "smt/smt_clause.h"
 #include "smt/smt_setup.h"
 #include "smt/smt_enode.h"
@@ -29,7 +30,6 @@ Revision History:
 #include "smt/smt_clause_proof.h"
 #include "smt/smt_theory.h"
 #include "smt/smt_quantifier.h"
-#include "smt/smt_quantifier_stat.h"
 #include "smt/smt_statistics.h"
 #include "smt/smt_conflict_resolution.h"
 #include "smt/smt_relevancy.h"
@@ -57,11 +57,7 @@ Revision History:
 // the case that each context only references a few expressions.
 // Using a map instead of a vector for the literals can compress space
 // consumption.
-#ifdef SPARSE_MAP
-#define USE_BOOL_VAR_VECTOR 0
-#else
 #define USE_BOOL_VAR_VECTOR 1
-#endif
 
 namespace smt {
 
@@ -93,7 +89,7 @@ namespace smt {
         scoped_ptr<quantifier_manager>   m_qmanager;
         scoped_ptr<model_generator>      m_model_generator;
         scoped_ptr<relevancy_propagator> m_relevancy_propagator;
-        scoped_ptr<user_propagator>      m_user_propagator;
+        user_propagator*            m_user_propagator;
         random_gen                  m_random;
         bool                        m_flushing; // (debug support) true when flushing
         mutable unsigned            m_lemma_id;
@@ -114,9 +110,9 @@ namespace smt {
 
         unsigned                    m_final_check_idx; // circular counter used for implementing fairness
 
-        bool                        m_is_auxiliary; // used to prevent unwanted information from being logged.
-        class parallel*             m_par;
-        unsigned                    m_par_index;
+        bool                        m_is_auxiliary { false }; // used to prevent unwanted information from being logged.
+        class parallel*             m_par { nullptr };
+        unsigned                    m_par_index { 0 };
 
         // -----------------------------------
         //
@@ -155,7 +151,7 @@ namespace smt {
         svector<new_th_eq>          m_propagated_th_diseqs;
         svector<enode_pair>         m_diseq_vector;
 #endif
-        enode *                     m_is_diseq_tmp; // auxiliary enode used to find congruent equality atoms.
+        enode *                     m_is_diseq_tmp { nullptr }; // auxiliary enode used to find congruent equality atoms.
 
         tmp_enode                   m_tmp_enode;
         ptr_vector<almost_cg_table> m_almost_cg_tables; // temporary field for is_ext_diseq
@@ -184,15 +180,15 @@ namespace smt {
         literal_vector              m_assigned_literals;
         typedef std::pair<clause*, literal_vector> tmp_clause;
         vector<tmp_clause>          m_tmp_clauses;
-        unsigned                    m_qhead;
-        unsigned                    m_simp_qhead;
-        int                         m_simp_counter; //!< can become negative
+        unsigned                    m_qhead { 0 };
+        unsigned                    m_simp_qhead { 0 };
+        int                         m_simp_counter { 0 }; //!< can become negative
         scoped_ptr<case_split_queue> m_case_split_queue;
         scoped_ptr<induction>       m_induction;
-        double                      m_bvar_inc;
-        bool                        m_phase_cache_on;
-        unsigned                    m_phase_counter; //!< auxiliary variable used to decide when to turn on/off phase caching
-        bool                        m_phase_default; //!< default phase when using phase caching
+        double                      m_bvar_inc { 1.0 };
+        bool                        m_phase_cache_on { true };
+        unsigned                    m_phase_counter { 0 }; //!< auxiliary variable used to decide when to turn on/off phase caching
+        bool                        m_phase_default { false }; //!< default phase when using phase caching
 
         // A conflict is usually a single justification. That is, a justification
         // for false. If m_not_l is not null_literal, then m_conflict is a
@@ -231,6 +227,9 @@ namespace smt {
         literal_vector             m_assumptions;
         literal2assumption         m_literal2assumption; // maps an expression associated with a literal to the original assumption
         expr_ref_vector            m_unsat_core;
+
+        unsigned                   m_last_position_log { 0 };
+        svector<size_t>            m_last_positions;
 
         // -----------------------------------
         //
@@ -586,11 +585,10 @@ namespace smt {
             return get_bdata(v).get_theory();
         }
 
-        expr_ref get_implied_value(expr* e);
-
-        expr_ref get_implied_lower_bound(expr* e);
-
-        expr_ref get_implied_upper_bound(expr* e);
+        /** 
+         * flag to toggle quantifier tracing.
+         */
+        bool m_coming_from_quant { false };
 
 
         friend class set_var_theory_trail;
@@ -602,10 +600,10 @@ namespace smt {
         //
         // -----------------------------------
     protected:
-        typedef ptr_vector<trail<context> >   trail_stack;
+        typedef ptr_vector<trail >   trail_stack;
         trail_stack                           m_trail_stack;
 #ifdef Z3DEBUG
-        bool                                  m_trail_enabled;
+        bool                                  m_trail_enabled { true };
 #endif
 
     public:
@@ -615,15 +613,15 @@ namespace smt {
             m_trail_stack.push_back(new (m_region) TrailObject(obj));
         }
 
-        void push_trail_ptr(trail<context> * ptr) {
+        void push_trail_ptr(trail * ptr) {
             m_trail_stack.push_back(ptr);
         }
 
     protected:
 
-        unsigned                    m_scope_lvl;
-        unsigned                    m_base_lvl;
-        unsigned                    m_search_lvl; // It is greater than m_base_lvl when assumptions are used.  Otherwise, it is equals to m_base_lvl
+        unsigned                    m_scope_lvl { 0 };
+        unsigned                    m_base_lvl { 0 };
+        unsigned                    m_search_lvl { 0 }; // It is greater than m_base_lvl when assumptions are used.  Otherwise, it is equals to m_base_lvl
         struct scope {
             unsigned                m_assigned_literals_lim;
             unsigned                m_trail_stack_lim;
@@ -726,7 +724,7 @@ namespace smt {
         }
 
     protected:
-        unsigned m_generation; //!< temporary variable used during internalization
+        unsigned m_generation { 0 }; //!< temporary variable used during internalization
 
     public:
         bool binary_clause_opt_enabled() const {
@@ -795,25 +793,31 @@ namespace smt {
         void internalize_uninterpreted(app * n);
 
         friend class mk_bool_var_trail;
-        class mk_bool_var_trail : public trail<context> {
+        class mk_bool_var_trail : public trail {
+            context& ctx;
         public:
-            void undo(context & ctx) override { ctx.undo_mk_bool_var(); }
+            mk_bool_var_trail(context& ctx) :ctx(ctx) {}
+            void undo() override { ctx.undo_mk_bool_var(); }
         };
         mk_bool_var_trail   m_mk_bool_var_trail;
         void undo_mk_bool_var();
 
         friend class mk_enode_trail;
-        class mk_enode_trail : public trail<context> {
+        class mk_enode_trail : public trail {
+            context& ctx;
         public:
-            void undo(context & ctx) override { ctx.undo_mk_enode(); }
+            mk_enode_trail(context& ctx) :ctx(ctx) {}
+            void undo() override { ctx.undo_mk_enode(); }
         };
         mk_enode_trail   m_mk_enode_trail;
         void undo_mk_enode();
 
         friend class mk_lambda_trail;
-        class mk_lambda_trail : public trail<context> {
+        class mk_lambda_trail : public trail {
+            context& ctx;
         public:
-            void undo(context & ctx) override { ctx.undo_mk_lambda(); }
+            mk_lambda_trail(context& ctx) :ctx(ctx) {}
+            void undo() override { ctx.undo_mk_lambda(); }
         };
         mk_lambda_trail   m_mk_lambda_trail;
         void undo_mk_lambda();
@@ -972,10 +976,10 @@ namespace smt {
         //
         // -----------------------------------
     protected:
-        lbool              m_last_search_result;
-        failure            m_last_search_failure;
+        lbool              m_last_search_result { l_undef };
+        failure            m_last_search_failure { UNKNOWN };
         ptr_vector<theory> m_incomplete_theories; //!< theories that failed to produce a model
-        bool               m_searching;
+        bool               m_searching { false };
         unsigned           m_num_conflicts;
         unsigned           m_num_conflicts_since_restart;
         unsigned           m_num_conflicts_since_lemma_gc;
@@ -1080,7 +1084,7 @@ namespace smt {
 
         void push_eq(enode * lhs, enode * rhs, eq_justification const & js) {
             if (lhs->get_root() != rhs->get_root()) {
-                SASSERT(m.get_sort(lhs->get_owner()) == m.get_sort(rhs->get_owner()));
+                SASSERT(lhs->get_owner()->get_sort() == rhs->get_owner()->get_sort());
                 m_eq_propagation_queue.push_back(new_eq(lhs, rhs, js));
             }
         }
@@ -1422,6 +1426,8 @@ namespace smt {
                                           unsigned num_antecedent_eqs, enode_pair const * antecedent_eqs,
                                           literal consequent = false_literal, symbol const& logic = symbol::null) const;
 
+        std::string mk_lemma_name() const;
+
         void display_assignment_as_smtlib2(std::ostream& out, symbol const& logic = symbol::null) const;
 
         void display_normalized_enodes(std::ostream & out) const;
@@ -1568,6 +1574,10 @@ namespace smt {
 
         void display_partial_assignment(std::ostream& out, expr_ref_vector const& asms, unsigned min_core_size);
 
+        void log_stats();
+
+        void copy_user_propagator(context& src);
+
     public:
         context(ast_manager & m, smt_params & fp, params_ref const & p = params_ref());
 
@@ -1682,12 +1692,42 @@ namespace smt {
         /*
          * user-propagator
          */
-        void register_user_propagator(
-            void* ctx, 
-            std::function<void(void*, unsigned, expr*)>& fixed_eh,
-            std::function<void(void*)>&                  push_eh,
-            std::function<void(void*, unsigned)>&        pop_eh);
+        void user_propagate_init(
+            void*                 ctx, 
+            solver::push_eh_t&    push_eh,
+            solver::pop_eh_t&     pop_eh,
+            solver::fresh_eh_t&   fresh_eh);
 
+        void user_propagate_register_final(solver::final_eh_t& final_eh) {
+            if (!m_user_propagator) 
+                throw default_exception("user propagator must be initialized");
+            m_user_propagator->register_final(final_eh);
+        }
+
+        void user_propagate_register_fixed(solver::fixed_eh_t& fixed_eh) {
+            if (!m_user_propagator) 
+                throw default_exception("user propagator must be initialized");
+            m_user_propagator->register_fixed(fixed_eh);
+        }
+        
+        void user_propagate_register_eq(solver::eq_eh_t& eq_eh) {
+            if (!m_user_propagator) 
+                throw default_exception("user propagator must be initialized");
+            m_user_propagator->register_eq(eq_eh);
+        }
+        
+        void user_propagate_register_diseq(solver::eq_eh_t& diseq_eh) {
+            if (!m_user_propagator) 
+                throw default_exception("user propagator must be initialized");
+            m_user_propagator->register_diseq(diseq_eh);
+        }
+
+        unsigned user_propagate_register(expr* e) {
+            if (!m_user_propagator) 
+                throw default_exception("user propagator must be initialized");
+            return m_user_propagator->add_expr(e);
+        }
+        
         bool watches_fixed(enode* n) const;
 
         void assign_fixed(enode* n, expr* val, unsigned sz, literal const* explain);

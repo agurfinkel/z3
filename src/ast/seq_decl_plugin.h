@@ -23,17 +23,13 @@ Revision History:
 #pragma once
 
 #include "ast/ast.h"
-#include "ast/bv_decl_plugin.h"
-#include <string>
-
-#define Z3_USE_UNICODE 0
+#include "ast/char_decl_plugin.h"
+#include "util/lbool.h"
+#include "util/zstring.h"
 
 enum seq_sort_kind {
     SEQ_SORT,
     RE_SORT,
-#if Z3_USE_UNICODE
-    _CHAR_SORT,     // internal only
-#endif
     _STRING_SORT,  
     _REGLAN_SORT
 };
@@ -89,10 +85,6 @@ enum seq_op_kind {
     OP_STRING_TO_CODE,
     OP_STRING_FROM_CODE,
 
-#if Z3_USE_UNICODE
-    OP_CHAR_CONST,    // constant character
-    OP_CHAR_LE,       // Unicode comparison
-#endif
     // internal only operators. Converted to SEQ variants.
     _OP_STRING_FROM_CHAR,
     _OP_STRING_STRREPL,
@@ -115,38 +107,6 @@ enum seq_op_kind {
 };
 
 
-class zstring {
-private:
-    buffer<unsigned> m_buffer;
-    bool well_formed() const;
-public:
-    static unsigned max_char() { return 196607; }
-    zstring() {}
-    zstring(char const* s);
-    zstring(const std::string &str) : zstring(str.c_str()) {}
-    zstring(unsigned sz, unsigned const* s) { m_buffer.append(sz, s); SASSERT(well_formed()); }
-    zstring(unsigned num_bits, bool const* ch);
-    zstring(unsigned ch);
-    zstring replace(zstring const& src, zstring const& dst) const;
-    zstring reverse() const;
-    std::string encode() const;
-    unsigned length() const { return m_buffer.size(); }
-    unsigned operator[](unsigned i) const { return m_buffer[i]; }
-    bool empty() const { return m_buffer.empty(); }
-    bool suffixof(zstring const& other) const;
-    bool prefixof(zstring const& other) const;
-    bool contains(zstring const& other) const;
-    int  indexofu(zstring const& other, unsigned offset) const;
-    int  last_indexof(zstring const& other) const;
-    zstring extract(unsigned lo, unsigned hi) const;
-    zstring operator+(zstring const& other) const;
-    bool operator==(const zstring& other) const;
-    bool operator!=(const zstring& other) const;
-
-    friend std::ostream& operator<<(std::ostream &os, const zstring &str);
-    friend bool operator<(const zstring& lhs, const zstring& rhs);
-};
-
 class seq_decl_plugin : public decl_plugin {
     struct psig {
         symbol          m_name;
@@ -167,16 +127,16 @@ class seq_decl_plugin : public decl_plugin {
     ptr_vector<sort> m_binding;
     bool             m_init;
     symbol           m_stringc_sym;
-    symbol           m_charc_sym;
     sort*            m_string;
     sort*            m_char;
     sort*            m_reglan;
     bool             m_has_re;
     bool             m_has_seq;
+    char_decl_plugin* m_char_plugin { nullptr };
 
     void match(psig& sig, unsigned dsz, sort* const* dom, sort* range, sort_ref& rng);
 
-    void match_right_assoc(psig& sig, unsigned dsz, sort* const* dom, sort* range, sort_ref& rng);
+    void match_assoc(psig& sig, unsigned dsz, sort* const* dom, sort* range, sort_ref& rng);
 
     bool match(ptr_vector<sort>& binding, sort* s, sort* sP);
 
@@ -187,6 +147,9 @@ class seq_decl_plugin : public decl_plugin {
     func_decl* mk_seq_fun(decl_kind k, unsigned arity, sort* const* domain, sort* range, decl_kind k_string);
     func_decl* mk_str_fun(decl_kind k, unsigned arity, sort* const* domain, sort* range, decl_kind k_seq);
     func_decl* mk_assoc_fun(decl_kind k, unsigned arity, sort* const* domain, sort* range, decl_kind k_string, decl_kind k_seq);
+    func_decl* mk_left_assoc_fun(decl_kind k, unsigned arity, sort* const* domain, sort* range, decl_kind k_string, decl_kind k_seq);
+    func_decl* mk_assoc_fun(decl_kind k, unsigned arity, sort* const* domain, sort* range, decl_kind k_string, decl_kind k_seq, bool is_right);
+
 
     void init();
 
@@ -197,6 +160,8 @@ public:
 
     ~seq_decl_plugin() override {}
     void finalize() override;
+
+    bool unicode() const { return get_char_plugin().unicode(); }
 
     decl_plugin * mk_fresh() override { return alloc(seq_decl_plugin); }
 
@@ -211,7 +176,7 @@ public:
 
     bool is_value(app * e) const override;
 
-    bool is_unique_value(app * e) const override { return false; }
+    bool is_unique_value(app * e) const override;
 
     bool are_equal(app* a, app* b) const override;
 
@@ -221,6 +186,9 @@ public:
 
     bool is_char(ast* a) const { return a == m_char; }
 
+    unsigned max_char() const { return get_char_plugin().max_char(); }
+    unsigned num_bits() const { return get_char_plugin().num_bits(); }
+
     app* mk_string(symbol const& s);
     app* mk_string(zstring const& s);
     app* mk_char(unsigned ch);
@@ -229,14 +197,19 @@ public:
     bool has_seq() const { return m_has_seq; }
 
     bool is_considered_uninterpreted(func_decl * f) override;
+
+    sort* char_sort() const { return m_char; }
+    sort* string_sort() const { return m_string; }
+
+    char_decl_plugin& get_char_plugin() const { return *m_char_plugin; }
+
 };
 
 class seq_util {
     ast_manager& m;
     seq_decl_plugin& seq;
+    char_decl_plugin& ch;
     family_id m_fid;
-    mutable scoped_ptr<bv_util> m_bv;
-    bv_util& bv() const;
 
 public:
 
@@ -245,25 +218,28 @@ public:
 
     ast_manager& get_manager() const { return m; }
 
+    sort* mk_char_sort() const { return seq.char_sort(); }
+    sort* mk_string_sort() const { return seq.string_sort(); }
+
     bool is_char(sort* s) const { return seq.is_char(s); }
     bool is_string(sort* s) const { return is_seq(s) && seq.is_char(s->get_parameter(0).get_ast()); }
     bool is_seq(sort* s) const { return is_sort_of(s, m_fid, SEQ_SORT); }
     bool is_re(sort* s) const { return is_sort_of(s, m_fid, RE_SORT); }
     bool is_re(sort* s, sort*& seq) const { return is_sort_of(s, m_fid, RE_SORT)  && (seq = to_sort(s->get_parameter(0).get_ast()), true); }
-    bool is_seq(expr* e) const  { return is_seq(m.get_sort(e)); }
+    bool is_seq(expr* e) const  { return is_seq(e->get_sort()); }
     bool is_seq(sort* s, sort*& seq) const { return is_seq(s) && (seq = to_sort(s->get_parameter(0).get_ast()), true); }
-    bool is_re(expr* e) const { return is_re(m.get_sort(e)); }
-    bool is_re(expr* e, sort*& seq) const { return is_re(m.get_sort(e), seq); }
-    bool is_char(expr* e) const { return is_char(m.get_sort(e)); }
+    bool is_re(expr* e) const { return is_re(e->get_sort()); }
+    bool is_re(expr* e, sort*& seq) const { return is_re(e->get_sort(), seq); }
+    bool is_char(expr* e) const { return is_char(e->get_sort()); }
     bool is_const_char(expr* e, unsigned& c) const;
-#if Z3_USE_UNICODE
-    bool is_char_le(expr const* e) const { return is_app_of(e, m_fid, OP_CHAR_LE); }
-#else
-    bool is_char_le(expr const* e) const { return bv().is_bv_ule(e) && is_char(to_app(e)->get_arg(0)); }
-#endif
+    bool is_const_char(expr* e) const { unsigned c; return is_const_char(e, c); }
+    bool is_char_le(expr const* e) const;
+    app* mk_char_bit(expr* e, unsigned i);
     app* mk_char(unsigned ch) const;
     app* mk_le(expr* ch1, expr* ch2) const;
-    app* mk_lt(expr* ch1, expr* ch2) const;
+    app* mk_lt(expr* ch1, expr* ch2) const;    
+    unsigned max_char() const { return seq.max_char(); }
+    unsigned num_bits() const { return seq.num_bits(); }
 
     app* mk_skolem(symbol const& name, unsigned n, expr* const* args, sort* range);
     bool is_skolem(expr const* e) const { return is_app_of(e, m_fid, _OP_SEQ_SKOLEM); }
@@ -313,6 +289,7 @@ public:
         app* mk_replace(expr* a, expr* b, expr* c) const { expr* es[3] = { a, b, c}; return m.mk_app(m_fid, OP_SEQ_REPLACE, 3, es); }
         app* mk_unit(expr* u) const { return m.mk_app(m_fid, OP_SEQ_UNIT, 1, &u); }
         app* mk_char(zstring const& s, unsigned idx) const;
+        app* mk_char_bit(expr* e, unsigned i);
         app* mk_itos(expr* i) const { return m.mk_app(m_fid, OP_STRING_ITOS, 1, &i); }
         app* mk_stoi(expr* s) const { return m.mk_app(m_fid, OP_STRING_STOI, 1, &s); }
         app* mk_is_empty(expr* s) const;
@@ -360,16 +337,15 @@ public:
         bool is_lt(expr const* n)       const { return is_app_of(n, m_fid, OP_STRING_LT); }
         bool is_le(expr const* n)       const { return is_app_of(n, m_fid, OP_STRING_LE); }
         bool is_is_digit(expr const* n) const { return is_app_of(n, m_fid, OP_STRING_IS_DIGIT); }
-        bool is_from_code(expr const* n) const { return is_app_of(n, m_fid, OP_STRING_TO_CODE); }
-        bool is_to_code(expr const* n) const { return is_app_of(n, m_fid, OP_STRING_FROM_CODE); }
+        bool is_from_code(expr const* n) const { return is_app_of(n, m_fid, OP_STRING_FROM_CODE); }
+        bool is_to_code(expr const* n) const { return is_app_of(n, m_fid, OP_STRING_TO_CODE); }
 
         bool is_string_term(expr const * n) const {
-            sort * s = get_sort(n);
-            return u.is_string(s);
+            return u.is_string(n->get_sort());
         }
 
         bool is_non_string_sequence(expr const * n) const {
-            sort * s = get_sort(n);
+            sort * s = n->get_sort();
             return (u.is_seq(s) && !u.is_string(s));
         }
 
@@ -408,13 +384,100 @@ public:
         unsigned max_length(expr* s) const;
     };
 
-    class re {
+    class rex {
+    public:
+        struct info {
+            /* Value is either undefined (known=l_undef) or defined and known (l_true) or defined but unknown (l_false)*/
+            lbool known { l_undef };
+            /* No complement, no intersection, no difference, and no if-then-else is used. Reverse is allowed. */
+            bool classical { false };
+            /* Boolean-reverse combination of classical regexes (using reverse, union, complement, intersection or difference). */
+            bool standard { false };
+            /* There are no uninterpreted symbols. */
+            bool interpreted { false };
+            /* No if-then-else is used. */
+            bool nonbranching { false };
+            /* Concatenations are right associative and if a loop body is nullable then the lower bound is zero. */
+            bool normalized { false };
+            /* All bounded loops have a body that is a singleton. */
+            bool monadic { false };
+            /* Positive Boolean combination of ranges or predicates or singleton sequences. */
+            bool singleton { false };
+            /* If l_true then empty word is accepted, if l_false then empty word is not accepted. */
+            lbool nullable { l_undef };
+            /* Lower bound  on the length of all accepted words. */
+            unsigned min_length { 0 };
+            /* Maximum nesting depth of Kleene stars. */
+            unsigned star_height { 0 };
+
+            /*
+              Default constructor of invalid info.
+            */
+            info() {}
+
+            /*
+              Used for constructing either an invalid info that is only used to indicate uninitialzed entry, or valid but unknown info value.
+            */
+            info(lbool is_known) : known(is_known) {}
+
+            /*
+              General info constructor.
+            */
+            info(bool is_classical,
+                bool is_standard,
+                bool is_interpreted,
+                bool is_nonbranching,
+                bool is_normalized,
+                bool is_monadic,
+                bool is_singleton,
+                lbool is_nullable,
+                unsigned min_l,
+                unsigned star_h) :
+                known(l_true), classical(is_classical), standard(is_standard), interpreted(is_interpreted), nonbranching(is_nonbranching),
+                normalized(is_normalized), monadic(is_monadic), singleton(is_singleton), nullable(is_nullable),
+                min_length(min_l), star_height(star_h) {}
+
+            /*
+              Appends a string representation of the info into the stream.
+            */
+            std::ostream& display(std::ostream&) const;
+
+            /*
+              Returns a string representation of the info.
+            */
+            std::string str() const;
+
+            bool is_valid() const { return known != l_undef; }
+
+            bool is_known() const { return known == l_true; }
+
+            info star() const;
+            info plus() const;
+            info opt() const;
+            info complement() const;
+            info concat(info const& rhs, bool lhs_is_concat) const;
+            info disj(info const& rhs) const;
+            info conj(info const& rhs) const; 
+            info diff(info const& rhs) const;
+            info orelse(info const& rhs) const;
+            info loop(unsigned lower, unsigned upper) const;
+        };
+    private:
         seq_util&    u;
         ast_manager& m;
         family_id    m_fid;
+        vector<info> mutable m_infos;
+        expr_ref_vector mutable m_info_pinned;
+        info invalid_info { info(l_undef) };
+        info unknown_info { info(l_false) };
+
+        bool has_valid_info(expr* r) const;
+        info get_info_rec(expr* r) const;
+        info mk_info_rec(app* r) const;
+        info get_cached_info(expr* e) const;
 
     public:
-        re(seq_util& u): u(u), m(u.m), m_fid(u.m_fid) {}
+        rex(seq_util& u): u(u), m(u.m), m_fid(u.m_fid), m_info_pinned(u.m) {}
 
         sort* mk_re(sort* seq) { parameter param(seq); return m.mk_sort(m_fid, RE_SORT, 1, &param); }
         sort* to_seq(sort* re);
@@ -482,27 +545,30 @@ public:
         unsigned max_length(expr* r) const;
         bool is_epsilon(expr* r) const;
         app* mk_epsilon(sort* seq_sort);
+        info get_info(expr* r) const;
+        std::string to_str(expr* r) const;
 
         class pp {
-            seq_util::re& re;
+            seq_util::rex& re;
             expr* e;
+            bool html_encode;
             bool can_skip_parenth(expr* r) const;
             std::ostream& seq_unit(std::ostream& out, expr* s) const;
             std::ostream& compact_helper_seq(std::ostream& out, expr* s) const;
             std::ostream& compact_helper_range(std::ostream& out, expr* s1, expr* s2) const;
 
         public:
-            pp(seq_util::re& r, expr* e) : re(r), e(e) {}
+            pp(seq_util::rex& r, expr* e, bool html = false) : re(r), e(e), html_encode(html) {}
             std::ostream& display(std::ostream&) const;
         };
-
     };
     str str;
-    re  re;
+    rex  re;
 
     seq_util(ast_manager& m):
         m(m),
         seq(*static_cast<seq_decl_plugin*>(m.get_plugin(m.mk_family_id("seq")))),
+        ch(seq.get_char_plugin()),
         m_fid(seq.get_family_id()),
         str(*this),
         re(*this) {
@@ -511,11 +577,9 @@ public:
     ~seq_util() {}
 
     family_id get_family_id() const { return m_fid; }
-
 };
 
-inline std::ostream& operator<<(std::ostream& out, seq_util::re::pp const & p) { return p.display(out); }
+inline std::ostream& operator<<(std::ostream& out, seq_util::rex::pp const & p) { return p.display(out); }
 
-
-
+inline std::ostream& operator<<(std::ostream& out, seq_util::rex::info const& p) { return p.display(out); }
 

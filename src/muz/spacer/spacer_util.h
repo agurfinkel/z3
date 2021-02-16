@@ -110,6 +110,7 @@ namespace spacer {
     void simplify_bounds (expr_ref_vector &lemmas);
     void normalize(expr *e, expr_ref &out, bool use_simplify_bounds = true, bool factor_eqs = false);
 
+    void normalize_order(expr *e, expr_ref &out);
     /**
      * Ground expression by replacing all free variables by skolem
      * constants. On return, out is the resulting expression, and vars is
@@ -142,5 +143,44 @@ namespace spacer {
 
     // set f to true in model
     void set_true_in_mdl(model &model, func_decl *f);
+    /// Returns number of free variables in a given expression
+    unsigned get_num_vars(expr *e);
+    void get_uninterp_consts(expr *a, expr_ref_vector &out);
+    bool has_nonlinear_mul(expr *e, ast_manager &m);
+
+    /// Checks whether there is a var*u_c term
+    bool has_nonlinear_var_mul(expr *e, ast_manager &m);
+
+    // check whether lit is an instance of mono_var_pattern
+    bool is_mono_var(expr *lit, ast_manager &m, arith_util &a_util);
+
+    // a mono_var_pattern has only one variable in the whole expression and is
+    // linear. lit is the literal with the variable
+    bool should_conjecture(const expr_ref &p, expr_ref &lit);
+
+    /// Drop all literals that numerically match \p lit, from \p fml_vec.
+    ///
+    /// \p abs_fml holds the result. Returns true if any literal has been dropped
+    bool drop_lit(expr_ref_vector &in, expr_ref &lit, expr_ref_vector &out);
+
+    /// Returns true if range of s is numeric
+    bool is_numeric_sub(substitution &s);
+
+    bool contains_mod(expr_ref e);
+
+    //checks whether any sub expression of \p e is of sort Real
+    bool contains_real(expr_ref e);
+
+    /// try to compute \p t and \p c such that (t <= c) ==> lit and c is a
+    /// numeral
+    bool under_approx_using_le(expr *lit, expr_ref &t, expr_ref &c);
+
+    // multiply fml with num and simplify rationals to ints
+    // fml should be in LIA/LRA/Arrays
+    // assumes that fml is a sum of products
+    void mul_by_rat(expr_ref &fml, rational num);
+
+    // get all numeral values in the formula
+    void extract_nums(expr_ref fml, vector<rational> &res);
 }
 

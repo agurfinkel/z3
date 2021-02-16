@@ -311,7 +311,7 @@ class sort_size {
     uint64_t m_size; // It is only meaningful if m_kind == SS_FINITE
     sort_size(kind_t k, uint64_t r):m_kind(k), m_size(r) {}
 public:
-    sort_size():m_kind(SS_INFINITE) {}
+    sort_size():m_kind(SS_INFINITE), m_size(0) {}
     sort_size(uint64_t const & sz):m_kind(SS_FINITE), m_size(sz) {}
     explicit sort_size(rational const& r) {
         if (r.is_uint64()) {
@@ -668,6 +668,8 @@ protected:
 
     expr(ast_kind k):ast(k) {}
 public:
+
+    sort* get_sort() const;
 };
 
 // -----------------------------------
@@ -719,6 +721,7 @@ public:
     unsigned get_size() const { return get_obj_size(get_num_args()); }
     expr * const * begin() const { return m_args; }
     expr * const * end() const { return m_args + m_num_args; }
+    sort * _get_sort() const { return get_decl()->get_range(); }
 
     unsigned get_depth() const { return flags()->m_depth; }
     bool is_ground() const { return flags()->m_ground; }
@@ -807,7 +810,7 @@ class var : public expr {
     var(unsigned idx, sort * s):expr(AST_VAR), m_idx(idx), m_sort(s) {}
 public:
     unsigned get_idx() const { return m_idx; }
-    sort * get_sort() const { return m_sort; }
+    sort * _get_sort() const { return m_sort; }
     unsigned get_size() const { return get_obj_size(); }
 };
 
@@ -863,7 +866,7 @@ public:
     symbol const & get_decl_name(unsigned idx) const { return get_decl_names()[idx]; }
     expr * get_expr() const { return m_expr; }
 
-    sort * get_sort() const { return m_sort; }
+    sort * _get_sort() const { return m_sort; }
 
     unsigned get_depth() const { return m_depth; }
 
@@ -1391,14 +1394,13 @@ inline bool has_labels(expr const * n) {
     else return false;
 }
 
-sort * get_sort(expr const * n);
 
 class basic_recognizers {
     family_id m_fid;
 public:
     basic_recognizers(family_id fid):m_fid(fid) {}
     bool is_bool(sort const * s) const { return is_sort_of(s, m_fid, BOOL_SORT); }
-    bool is_bool(expr const * n) const { return is_bool(get_sort(n)); }
+    bool is_bool(expr const * n) const { return is_bool(n->get_sort()); }
     bool is_or(expr const * n) const { return is_app_of(n, m_fid, OP_OR); }
     bool is_implies(expr const * n) const { return is_app_of(n, m_fid, OP_IMPLIES); }
     bool is_and(expr const * n) const { return is_app_of(n, m_fid, OP_AND); }
@@ -1680,9 +1682,8 @@ public:
     void debug_ref_count() { m_debug_ref_count = true; }
 
     void inc_ref(ast* n) {
-        if (n) {
+        if (n) 
             n->inc_ref();
-        }
     }
     
     void dec_ref(ast* n) {
@@ -1734,7 +1735,6 @@ protected:
     }
 
 public:
-    sort * get_sort(expr const * n) const { return ::get_sort(n); }
     void check_sort(func_decl const * decl, unsigned num_args, expr * const * args) const;
     void check_sorts_core(ast const * n) const;
     bool check_sorts(ast const * n) const;
@@ -2310,7 +2310,7 @@ public:
     bool has_fact(proof const * p) const {
         SASSERT(is_proof(p));
         unsigned n = p->get_num_args();
-        return n > 0 && get_sort(p->get_arg(n - 1)) != m_proof_sort;
+        return n > 0 && p->get_arg(n - 1)->get_sort() != m_proof_sort;
     }
     expr * get_fact(proof const * p) const { SASSERT(is_proof(p)); SASSERT(has_fact(p)); return p->get_arg(p->get_num_args() - 1); }
     
@@ -2598,11 +2598,8 @@ public:
     }
 
     void reset() {
-        ast * const * it  = m_to_unmark.c_ptr();
-        ast * const * end = it + m_to_unmark.size();
-        for (; it != end; ++it) {
-            reset_mark(*it);
-        }
+        for (ast * a : m_to_unmark) 
+            reset_mark(a);
         m_to_unmark.reset();
     }
 

@@ -98,8 +98,8 @@ namespace smt {
         m_parser.add_var("cs_factor");
     }
 
-    quantifier_stat * qi_queue::set_values(quantifier * q, app * pat, unsigned generation, unsigned min_top_generation, unsigned max_top_generation, float cost) {
-        quantifier_stat * stat     = m_qm.get_stat(q);
+    q::quantifier_stat * qi_queue::set_values(quantifier * q, app * pat, unsigned generation, unsigned min_top_generation, unsigned max_top_generation, float cost) {
+        q::quantifier_stat * stat     = m_qm.get_stat(q);
         m_vals[COST]               = cost;
         m_vals[MIN_TOP_GENERATION] = static_cast<float>(min_top_generation);
         m_vals[MAX_TOP_GENERATION] = static_cast<float>(max_top_generation);
@@ -120,7 +120,7 @@ namespace smt {
     }
 
     float qi_queue::get_cost(quantifier * q, app * pat, unsigned generation, unsigned min_top_generation, unsigned max_top_generation) {
-        quantifier_stat * stat = set_values(q, pat, generation, min_top_generation, max_top_generation, 0);
+        q::quantifier_stat * stat = set_values(q, pat, generation, min_top_generation, max_top_generation, 0);
         float r = m_evaluator(m_cost_function, m_vals.size(), m_vals.c_ptr());
         stat->update_max_cost(r);
         return r;
@@ -193,6 +193,9 @@ namespace smt {
     }
 
     void qi_queue::instantiate(entry & ent) {
+        // set temporary flag to enable quantifier-specific tracing in within smt_internalizer.
+        flet<bool> _coming_from_quant(m_context.m_coming_from_quant, true);
+
         fingerprint * f          = ent.m_qb;
         quantifier * q           = static_cast<quantifier*>(f->get_data());
         unsigned generation      = ent.m_generation;
@@ -200,13 +203,10 @@ namespace smt {
         enode * const * bindings = f->get_args();
 
         ent.m_instantiated = true;
-
+                
         TRACE("qi_queue_profile", tout << q->get_qid() << ", gen: " << generation << " " << *f << " cost: " << ent.m_cost << "\n";);
-        // NEVER remove coming_from_quant
-        // "coming_from_quant" allows the logging of bindings and enodes
-        // only when they come from instantiations
-        enable_trace("coming_from_quant");
-        quantifier_stat * stat = m_qm.get_stat(q);
+
+        q::quantifier_stat * stat = m_qm.get_stat(q);
 
         if (m_checker.is_sat(q->get_expr(), num_bindings, bindings)) {
             TRACE("checker", tout << "instance already satisfied\n";);
@@ -216,14 +216,15 @@ namespace smt {
             // a dummy instantiation is still an instantiation.
             // in this way smt.qi.profile=true coincides with the axiom profiler
             stat->inc_num_instances_checker_sat();
-            disable_trace("coming_from_quant");
             return;
         }
 
         STRACE("instance", tout << "### " << static_cast<void*>(f) <<", " << q->get_qid()  << "\n";);
 
-        expr_ref instance(m);
-        m_subst(q, num_bindings, bindings, instance);
+        auto* ebindings = m_subst(q, num_bindings);
+        for (unsigned i = 0; i < num_bindings; ++i)
+            ebindings[i] = bindings[i]->get_owner();
+        expr_ref instance = m_subst();
 
         TRACE("qi_queue", tout << "new instance:\n" << mk_pp(instance, m) << "\n";);
         TRACE("qi_queue_instance", tout << "new instance:\n" << mk_pp(instance, m) << "\n";);
@@ -241,7 +242,6 @@ namespace smt {
                 m.trace_stream() << "[end-of-instance]\n";
             }
 
-            disable_trace("coming_from_quant");
             return;
         }
         TRACE("qi_queue", tout << "simplified instance:\n" << s_instance << "\n";);
@@ -329,8 +329,6 @@ namespace smt {
         if (m.has_trace_stream())
             m.trace_stream() << "[end-of-instance]\n";
 
-        // NEVER remove coming_from_quant
-        disable_trace("coming_from_quant");
     }
 
     void qi_queue::push_scope() {

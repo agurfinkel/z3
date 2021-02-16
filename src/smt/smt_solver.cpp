@@ -16,16 +16,17 @@ Author:
 Notes:
 
 --*/
-#include "solver/solver_na2as.h"
-#include "smt/smt_kernel.h"
+
+#include "util/dec_ref_util.h"
 #include "ast/reg_decl_plugins.h"
-#include "smt/params/smt_params.h"
-#include "smt/params/smt_params_helper.hpp"
-#include "solver/mus.h"
 #include "ast/for_each_expr.h"
 #include "ast/ast_smt2_pp.h"
 #include "ast/func_decl_dependencies.h"
-#include "util/dec_ref_util.h"
+#include "smt/smt_kernel.h"
+#include "smt/params/smt_params.h"
+#include "smt/params/smt_params_helper.hpp"
+#include "solver/solver_na2as.h"
+#include "solver/mus.h"
 
 namespace {
 
@@ -157,6 +158,10 @@ namespace {
         void assert_expr_core(expr * t) override {
             m_context.assert_expr(t);
         }
+        void set_phase(expr* e) override { m_context.set_phase(e); }
+        phase* get_phase() override { return m_context.get_phase(); }
+        void set_phase(phase* p) override { m_context.set_phase(p); }
+        void move_to_front(expr* e) override { m_context.move_to_front(e); }
 
         void assert_expr_core2(expr * t, expr * a) override {
             if (m_name2assertion.contains(a)) {
@@ -208,14 +213,33 @@ namespace {
             return m_context.get_trail();
         }
 
-        void register_user_propagator(
-            void* ctx, 
-            std::function<void(void*, unsigned, expr*)>& fixed_eh,
-            std::function<void(void*)>&                  push_eh,
-            std::function<void(void*, unsigned)>&        pop_eh) override {
-            m_context.register_user_propagator(ctx, fixed_eh, push_eh, pop_eh);
+        void user_propagate_init(
+            void*                ctx, 
+            solver::push_eh_t&   push_eh,
+            solver::pop_eh_t&    pop_eh,
+            solver::fresh_eh_t&  fresh_eh) override {
+            m_context.user_propagate_init(ctx, push_eh, pop_eh, fresh_eh);
+        }
+        
+        void user_propagate_register_fixed(solver::fixed_eh_t& fixed_eh) override {
+            m_context.user_propagate_register_fixed(fixed_eh);
         }
 
+        void user_propagate_register_final(solver::final_eh_t& final_eh) override {
+            m_context.user_propagate_register_final(final_eh);
+        }
+        
+        void user_propagate_register_eq(solver::eq_eh_t& eq_eh) override {
+            m_context.user_propagate_register_eq(eq_eh);
+        }
+        
+        void user_propagate_register_diseq(solver::eq_eh_t& diseq_eh) override {
+            m_context.user_propagate_register_diseq(diseq_eh);
+        }
+
+        unsigned user_propagate_register(expr* e) override { 
+            return m_context.user_propagate_register(e);
+        }
 
         struct scoped_minimize_core {
             smt_solver& s;
@@ -369,18 +393,6 @@ namespace {
                 }
                 ++i;
             }
-        }
-
-        expr_ref get_implied_value(expr* e) override {
-            return m_context.get_implied_value(e);
-        }
-
-        expr_ref get_implied_lower_bound(expr* e) override {
-            return m_context.get_implied_lower_bound(e);
-        }
-
-        expr_ref get_implied_upper_bound(expr* e) override {
-            return m_context.get_implied_upper_bound(e);
         }
 
         bool fds_intersect(func_decl_set & pattern_fds, func_decl_set & assrtn_fds) {

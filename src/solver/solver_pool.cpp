@@ -68,6 +68,10 @@ public:
     }
 
     solver* base_solver() { return m_base.get(); }
+    void set_phase(expr* e) override { m_base->set_phase(e); }
+    phase* get_phase() override { return m_base->get_phase(); }
+    void set_phase(phase* p) override { m_base->set_phase(p); }
+    void move_to_front(expr* e) override { m_base->move_to_front(e); }
 
     solver* translate(ast_manager& m, params_ref const& p) override { UNREACHABLE(); return nullptr; }
     void updt_params(params_ref const& p) override {
@@ -125,18 +129,6 @@ public:
 
     expr_ref_vector get_trail() override {
         return m_base->get_trail();
-    }
-
-    expr_ref get_implied_value(expr* e) override {
-        return expr_ref(e, m);
-    }
-
-    expr_ref get_implied_lower_bound(expr* e) override {
-        return expr_ref(e, m);
-    }
-
-    expr_ref get_implied_upper_bound(expr* e) override {
-        return expr_ref(e, m);
     }
 
     lbool check_sat_core2(unsigned num_assumptions, expr * const * assumptions) override {

@@ -27,9 +27,9 @@ protected:
     typedef rational numeral;
     arith_util  m_util;
     scoped_ptr<seq_util> m_seq;
-    bool        m_expand_power;
-    bool        m_mul2power;
-    bool        m_expand_tan;
+    bool        m_expand_power{ false };
+    bool        m_mul2power{ false };
+    bool        m_expand_tan{ false };
     
     ast_manager & m() const { return m_util.get_manager(); }
     family_id get_fid() const { return m_util.get_family_id(); }
@@ -44,6 +44,8 @@ protected:
     decl_kind mul_decl_kind() const { return OP_MUL; }
     bool use_power() const { return m_mul2power && !m_expand_power; }
     decl_kind power_decl_kind() const { return OP_POWER; }
+    app* mk_power(expr* x, rational const& r, sort* s);
+    expr* coerce(expr* x, sort* s);
 public:
     arith_rewriter_core(ast_manager & m):m_util(m) {}
     bool is_zero(expr * n) const { return m_util.is_zero(n); }

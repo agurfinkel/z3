@@ -50,6 +50,10 @@ import sys
 import io
 import math
 import copy
+if sys.version < '3':
+    pass
+else:
+    from typing import Iterable
 
 Z3_DEBUG = __debug__
 
@@ -1107,6 +1111,10 @@ def _coerce_exprs(a, b, ctx=None):
     if not is_expr(a) and not is_expr(b):
         a = _py2expr(a, ctx)
         b = _py2expr(b, ctx)
+    if isinstance(a, str) and isinstance(b, SeqRef):
+        a = StringVal(a, b.ctx)
+    if isinstance(b, str) and isinstance(a, SeqRef):
+        b = StringVal(b, a.ctx)
     s = None
     s = _coerce_expr_merge(s, a)
     s = _coerce_expr_merge(s, b)
@@ -2934,6 +2942,8 @@ def _py2expr(a, ctx=None):
         return IntVal(a, ctx)
     if isinstance(a, float):
         return RealVal(a, ctx)
+    if isinstance(a, str):
+        return StringVal(a, ctx)
     if is_expr(a):
         return a
     if z3_debug():
@@ -5413,9 +5423,9 @@ class Goal(Z3PPObject):
         """Return a textual representation of the s-expression representing the goal."""
         return Z3_goal_to_string(self.ctx.ref(), self.goal)
 
-    def dimacs(self):
+    def dimacs(self, include_names = True):
         """Return a textual representation of the goal in DIMACS format."""
-        return Z3_goal_to_dimacs_string(self.ctx.ref(), self.goal)
+        return Z3_goal_to_dimacs_string(self.ctx.ref(), self.goal, include_names)
 
     def translate(self, target):
         """Copy goal `self` to context `target`.
@@ -6266,13 +6276,14 @@ class ModelRef(Z3PPObject):
         if z3_debug():
             _z3_assert(isinstance(target, Context), "argument must be a Z3 context")
         model = Z3_model_translate(self.ctx.ref(), self.model, target.ref())
-        return Model(model, target)
+        return ModelRef(model, target)
 
     def __copy__(self):
         return self.translate(self.ctx)
 
     def __deepcopy__(self, memo={}):
         return self.translate(self.ctx)
+
 
 def Model(ctx = None):
     ctx = _get_ctx(ctx)
@@ -6857,21 +6868,6 @@ class Solver(Z3PPObject):
         """
         return AstVector(Z3_solver_get_trail(self.ctx.ref(), self.solver), self.ctx)
 
-    def value(self, e):
-        """Return value of term in solver, if any is given.
-        """
-        return _to_expr_ref(Z3_solver_get_implied_value(self.ctx.ref(), self.solver, e.as_ast()), self.ctx)
-
-    def lower(self, e):
-        """Return lower bound known to solver based on the last call.
-        """
-        return _to_expr_ref(Z3_solver_get_implied_lower(self.ctx.ref(), self.solver, e.as_ast()), self.ctx)
-    
-    def upper(self, e):
-        """Return upper bound known to solver based on the last call.
-        """
-        return _to_expr_ref(Z3_solver_get_implied_upper(self.ctx.ref(), self.solver, e.as_ast()), self.ctx)
-
     def statistics(self):
         """Return statistics for the last `check()`.
 
@@ -7411,12 +7407,22 @@ class OptimizeObjective:
         return "%s:%s" % (self._value, self._is_max)
 
 
+
+_on_models = {}
+
+def _global_on_model(ctx):
+    (fn, mdl) = _on_models[ctx]
+    fn(mdl)
+    
+_on_model_eh = on_model_eh_type(_global_on_model)
+
 class Optimize(Z3PPObject):
     """Optimize API provides methods for solving using objective functions and weighted soft constraints"""
 
     def __init__(self, ctx=None):
         self.ctx    = _get_ctx(ctx)
         self.optimize = Z3_mk_optimize(self.ctx.ref())
+        self._on_models_id = None
         Z3_optimize_inc_ref(self.ctx.ref(), self.optimize)
 
     def __deepcopy__(self, memo={}):
@@ -7425,6 +7431,8 @@ class Optimize(Z3PPObject):
     def __del__(self):
         if self.optimize is not None and self.ctx.ref() is not None:
             Z3_optimize_dec_ref(self.ctx.ref(), self.optimize)
+        if self._on_models_id is not None:
+            del _on_models[self._on_models_id]
 
     def set(self, *args, **keys):
         """Set a configuration option. The method `help()` return a string containing all available options.
@@ -7505,8 +7513,12 @@ class Optimize(Z3PPObject):
         if id is None:
             id = ""
         id = to_symbol(id, self.ctx)
-        v = Z3_optimize_assert_soft(self.ctx.ref(), self.optimize, arg.as_ast(), weight, id)
-        return OptimizeObjective(self, v, False)
+        def asoft(a):
+            v = Z3_optimize_assert_soft(self.ctx.ref(), self.optimize, a.as_ast(), weight, id)
+            return OptimizeObjective(self, v, False)
+        if sys.version >= '3' and isinstance(arg, Iterable):
+            return [asoft(a) for a in arg]
+        return asoft(arg)
 
     def maximize(self, arg):
         """Add objective function to maximize."""
@@ -7597,7 +7609,17 @@ class Optimize(Z3PPObject):
         """
         return Statistics(Z3_optimize_get_statistics(self.ctx.ref(), self.optimize), self.ctx)
 
-
+    def set_on_model(self, on_model):
+        """Register a callback that is invoked with every incremental improvement to
+        objective values. The callback takes a model as argument.
+        The life-time of the model is limited to the callback so the
+        model has to be (deep) copied if it is to be used after the callback
+        """
+        id  = len(_on_models) + 41
+        mdl = Model(self.ctx)
+        _on_models[id] = (on_model, mdl)
+        self._on_models_id = id
+        Z3_optimize_register_model_eh(self.ctx.ref(), self.optimize, mdl.model, ctypes.c_void_p(id), _on_model_eh)
 
 
 #########################################
@@ -8466,10 +8488,11 @@ def solve(*args, **keywords):
     >>> solve(a > 0, a < 2)
     [a = 1]
     """
+    show = keywords.pop("show", False)
     s = Solver()
     s.set(**keywords)
     s.add(*args)
-    if keywords.get('show', False):
+    if show:
         print(s)
     r = s.check()
     if r == unsat:
@@ -8491,11 +8514,12 @@ def solve_using(s, *args, **keywords):
     It configures solver `s` using the options in `keywords`, adds the constraints
     in `args`, and invokes check.
     """
+    show = keywords.pop("show", False)
     if z3_debug():
         _z3_assert(isinstance(s, Solver), "Solver object expected")
     s.set(**keywords)
     s.add(*args)
-    if keywords.get('show', False):
+    if show:
         print("Problem:")
         print(s)
     r = s.check()
@@ -8508,11 +8532,11 @@ def solve_using(s, *args, **keywords):
         except Z3Exception:
             return
     else:
-        if keywords.get('show', False):
+        if show:
             print("Solution:")
         print(s.model())
 
-def prove(claim, **keywords):
+def prove(claim, show=False, **keywords):
     """Try to prove the given claim.
 
     This is a simple function for creating demonstrations.  It tries to prove
@@ -8527,7 +8551,7 @@ def prove(claim, **keywords):
     s = Solver()
     s.set(**keywords)
     s.add(Not(claim))
-    if keywords.get('show', False):
+    if show:
         print(s)
     r = s.check()
     if r == unsat:
@@ -8541,10 +8565,11 @@ def prove(claim, **keywords):
 
 def _solve_html(*args, **keywords):
     """Version of function `solve` used in RiSE4Fun."""
+    show = keywords.pop("show", False)
     s = Solver()
     s.set(**keywords)
     s.add(*args)
-    if keywords.get('show', False):
+    if show:
         print("<b>Problem:</b>")
         print(s)
     r = s.check()
@@ -8557,17 +8582,18 @@ def _solve_html(*args, **keywords):
         except Z3Exception:
             return
     else:
-        if keywords.get('show', False):
+        if show:
             print("<b>Solution:</b>")
         print(s.model())
 
 def _solve_using_html(s, *args, **keywords):
     """Version of function `solve_using` used in RiSE4Fun."""
+    show = keywords.pop("show", False)
     if z3_debug():
         _z3_assert(isinstance(s, Solver), "Solver object expected")
     s.set(**keywords)
     s.add(*args)
-    if keywords.get('show', False):
+    if show:
         print("<b>Problem:</b>")
         print(s)
     r = s.check()
@@ -8580,18 +8606,18 @@ def _solve_using_html(s, *args, **keywords):
         except Z3Exception:
             return
     else:
-        if keywords.get('show', False):
+        if show:
             print("<b>Solution:</b>")
         print(s.model())
 
-def _prove_html(claim, **keywords):
+def _prove_html(claim, show=False, **keywords):
     """Version of function `prove` used in RiSE4Fun."""
     if z3_debug():
         _z3_assert(is_bool(claim), "Z3 Boolean expression expected")
     s = Solver()
     s.set(**keywords)
     s.add(Not(claim))
-    if keywords.get('show', False):
+    if show:
         print(s)
     r = s.check()
     if r == unsat:
@@ -10139,6 +10165,7 @@ def is_string_value(a):
 
 def StringVal(s, ctx=None):
     """create a string expression"""
+    s = "".join(str(ch) if ord(ch) < 128 else "\\u{%x}" % (ord(ch)) for ch in s)
     ctx = _get_ctx(ctx)
     return SeqRef(Z3_mk_lstring(ctx.ref(), len(s), s), ctx)
 
@@ -10503,3 +10530,188 @@ def TransitiveClosure(f):
     The transitive closure R+ is a new relation.
     """
     return FuncDeclRef(Z3_mk_transitive_closure(f.ctx_ref(), f.ast), f.ctx)
+
+
+class PropClosures:
+    def __init__(self):
+        self.bases = {}
+        self.lock = None
+
+    def set_threaded():
+        if self.lock is None:
+            import threading
+            self.lock = threading.thread.Lock()
+
+    def get(self, ctx):
+        if self.lock: self.lock.acquire()
+        r = self.bases[ctx]
+        if self.lock: self.lock.release()
+        return r
+
+    def set(self, ctx, r):
+        if self.lock: self.lock.acquire()
+        self.bases[ctx] = r
+        if self.lock: self.lock.release()
+
+    def insert(self, r):
+        if self.lock: self.lock.acquire()
+        id = len(self.bases) + 3
+        self.bases[id] = r
+        if self.lock: self.lock.release()
+        return id
+
+_prop_closures = None
+
+def ensure_prop_closures():
+    global _prop_closures
+    if _prop_closures is None:
+        _prop_closures = PropClosures()
+
+def user_prop_push(ctx):
+    _prop_closures.get(ctx).push();
+
+def user_prop_pop(ctx, num_scopes):
+    _prop_closures.get(ctx).pop(num_scopes)
+
+def user_prop_fresh(id, ctx):
+    prop = _prop_closures.get(id)
+    _prop_closures.set_threaded()
+    new_prop = UsePropagateBase(None, ctx)
+    _prop_closures.set(new_prop.id, new_prop.fresh())
+    return ctypes.c_void_p(new_prop.id)
+
+def user_prop_fixed(ctx, cb, id, value):
+    prop = _prop_closures.get(ctx)
+    prop.cb = cb
+    prop.fixed(id, _to_expr_ref(ctypes.c_void_p(value), prop.ctx()))
+    prop.cb = None
+
+def user_prop_final(ctx, cb):
+    prop = _prop_closures.get(ctx)
+    prop.cb = cb
+    prop.final()
+    prop.cb = None
+
+def user_prop_eq(ctx, cb, x, y):
+    prop = _prop_closures.get(ctx)
+    prop.cb = cb
+    prop.eq(x, y)
+    prop.cb = None
+
+def user_prop_diseq(ctx, cb, x, y):
+    prop = _prop_closures.get(ctx)
+    prop.cb = cb
+    prop.diseq(x, y)
+    prop.cb = None
+
+_user_prop_push  = push_eh_type(user_prop_push)
+_user_prop_pop   = pop_eh_type(user_prop_pop)
+_user_prop_fresh = fresh_eh_type(user_prop_fresh)
+_user_prop_fixed = fixed_eh_type(user_prop_fixed)
+_user_prop_final = final_eh_type(user_prop_final)
+_user_prop_eq    = eq_eh_type(user_prop_eq)
+_user_prop_diseq = eq_eh_type(user_prop_diseq)
+
+class UserPropagateBase:
+
+    #
+    # Either solver is set or ctx is set.
+    # Propagators that are created throuh callbacks
+    # to "fresh" inherit the context of that is supplied
+    # as argument to the callback.
+    # This context should not be deleted. It is owned by the solver.
+    # 
+    def __init__(self, s, ctx = None):
+        assert s is None or ctx is None
+        ensure_prop_closures()
+        self.solver = s        
+        self._ctx = None
+        self.cb = None
+        self.id = _prop_closures.insert(self)
+        self.fixed = None
+        self.final = None
+        self.eq    = None
+        self.diseq = None
+        if ctx:
+            self._ctx = Context()
+            Z3_del_context(self._ctx.ctx)
+            self._ctx.ctx = ctx
+            self._ctx.eh = Z3_set_error_handler(ctx, z3_error_handler)
+            Z3_set_ast_print_mode(ctx, Z3_PRINT_SMTLIB2_COMPLIANT)
+        if s:
+            Z3_solver_propagate_init(self.ctx_ref(),
+                                     s.solver,
+                                     ctypes.c_void_p(self.id),
+                                     _user_prop_push,
+                                     _user_prop_pop,
+                                     _user_prop_fresh)
+
+    def __del__(self):
+        if self._ctx:
+            self._ctx.ctx = None
+
+    def ctx(self):
+        if self._ctx:
+            return self._ctx
+        else:
+            return self.solver.ctx
+        
+    def ctx_ref(self):
+        return self.ctx().ref()
+                    
+    def add_fixed(self, fixed):
+        assert not self.fixed
+        assert not self._ctx
+        Z3_solver_propagate_fixed(self.ctx_ref(), self.solver.solver, _user_prop_fixed)
+        self.fixed = fixed
+ 
+    def add_final(self, final):
+        assert not self.final
+        assert not self._ctx
+        Z3_solver_propagate_final(self.ctx_ref(), self.solver.solver, _user_prop_final)
+        self.final = final
+
+    def add_eq(self, eq):
+        assert not self.eq
+        assert not self._ctx
+        Z3_solver_propagate_eq(self.ctx_ref(), self.solver.solver, _user_prop_eq)
+        self.eq = eq
+
+    def add_diseq(self, diseq):
+        assert not self.diseq
+        assert not self._ctx
+        Z3_solver_propagate_diseq(self.ctx_ref(), self.solver.solver, _user_prop_diseq)
+        self.diseq = diseq
+
+    def push(self):
+        raise Z3Exception("push needs to be overwritten")
+
+    def pop(self, num_scopes):
+        raise Z3Exception("pop needs to be overwritten")
+
+    def fresh(self):
+        raise Z3Exception("fresh needs to be overwritten")
+        
+    def add(self, e):
+        assert self.solver
+        assert not self._ctx
+        return Z3_solver_propagate_register(self.ctx_ref(), self.solver.solver, e.ast)
+
+    #
+    # Propagation can only be invoked as during a fixed or final callback.
+    # 
+    def propagate(self, e, ids, eqs = []):
+        num_fixed = len(ids)
+        _ids = (ctypes.c_uint * num_fixed)()
+        for i in range(num_fixed):
+            _ids[i] = ids[i]
+        num_eqs = len(eqs)
+        _lhs = (ctypes.c_uint * num_eqs)()
+        _rhs = (ctypes.c_uint * num_eqs)()
+        for i in range(num_eqs):
+            _lhs[i] = eqs[i][0]
+            _rhs[i] = eqs[i][1]
+        Z3_solver_propagate_consequence(e.ctx.ref(), ctypes.c_void_p(self.cb), num_fixed, _ids, num_eqs, _lhs, _rhs, e.ast)
+
+    def conflict(self, ids):
+        self.propagate(BoolVal(False, self.ctx()), ids, eqs=[])

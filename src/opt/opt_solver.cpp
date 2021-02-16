@@ -54,7 +54,6 @@ namespace opt {
         }
         m_params.m_arith_auto_config_simplex = false;
         m_params.m_threads = 1; // need to interact with the solver that created model so can't have threads
-        m_was_sat = false;
         // m_params.m_auto_config = false;
     }
 
@@ -85,11 +84,11 @@ namespace opt {
     }
     
     void opt_solver::assert_expr_core(expr * t) {
+        m_last_model = nullptr;
         if (has_quantifiers(t)) {
             m_params.m_relevancy_lvl = 2;
         }
         m_context.assert_expr(t);
-        m_was_sat = false;
     }
     
     void opt_solver::push_core() {
@@ -182,6 +181,7 @@ namespace opt {
                        verbose_stream().flush(););
         }
         lbool r;
+        m_last_model = nullptr;
         if (m_first && num_assumptions == 0 && m_context.get_scope_level() == 0) {
             r = m_context.setup_and_check();
         }
@@ -189,9 +189,8 @@ namespace opt {
             r = m_context.check(num_assumptions, assumptions);
         }
         r = adjust_result(r);
-        m_was_sat = r == l_true;
         if (r == l_true) {
-            m_context.get_model(m_model);
+            m_context.get_model(m_last_model);
         }
         m_first = false;
         if (dump_benchmarks()) {
@@ -240,48 +239,50 @@ namespace opt {
     void opt_solver::maximize_objective(unsigned i, expr_ref& blocker) {
         smt::theory_var v = m_objective_vars[i];
         bool has_shared = false;
+        m_last_model = nullptr;
         inf_eps val = get_optimizer().maximize(v, blocker, has_shared);
-        get_model(m_model);
+        m_context.get_model(m_last_model);
         inf_eps val2;
         m_valid_objectives[i] = true;
         has_shared = true;
-        TRACE("opt", tout << (has_shared?"has shared":"non-shared") << " " << val << " " << blocker << "\n";);
-        if (!m_models[i]) {
-            set_model(i);
-        }
+        TRACE("opt", tout << (has_shared?"has shared":"non-shared") << " " << val << " " << blocker << "\n";
+              if (m_last_model) tout << *m_last_model << "\n";);
+        if (!m_models[i]) 
+            m_models.set(i, m_last_model.get());
+                        
+        auto decrement = [&]() {
+            SASSERT(has_shared);
+            decrement_value(i, val);
+            if (l_true != m_context.check(0, nullptr))  
+                throw default_exception("maximization suspended");
+            m_context.get_model(m_last_model);            
+        };
+
         if (!val.is_finite()) {
             // skip model updates
         }
         else if (m_context.get_context().update_model(has_shared)) {
+            TRACE("opt", tout << "updated\n";);
+            m_last_model = nullptr;
+            m_context.get_model(m_last_model);
             if (has_shared && val != current_objective_value(i)) {
-                decrement_value(i, val);
-                if (l_true != m_context.check(0, nullptr)) 
-                    throw default_exception("maximization suspended");
-                m_was_sat = true;
+                decrement();
             }
             else {
-                set_model(i);
+                m_models.set(i, m_last_model.get());
             }
         }
         else {
-            SASSERT(has_shared);
-            decrement_value(i, val);            
-            if (l_true != m_context.check(0, nullptr)) 
-                throw default_exception("maximization suspended");
-            m_was_sat = true;
+            decrement();
         }
         m_objective_values[i] = val;
         TRACE("opt", { 
                 tout << "objective:     " << mk_pp(m_objective_terms[i].get(), m) << "\n";
                 tout << "maximal value: " << val << "\n"; 
                 tout << "new condition: " << blocker << "\n";
-                if (m_models[i]) model_smt2_pp(tout << "update model:\n", m, *m_models[i], 0); });
-    }
-
-    void opt_solver::set_model(unsigned i) {
-        model_ref mdl;
-        get_model(mdl);
-        m_models.set(i, mdl.get());
+                if (m_models[i]) model_smt2_pp(tout << "update model:\n", m, *m_models[i], 0); 
+                if (m_last_model) model_smt2_pp(tout << "last model:\n", m, *m_last_model, 0);
+            });
     }
 
     lbool opt_solver::decrement_value(unsigned i, inf_eps& val) {
@@ -291,9 +292,9 @@ namespace opt {
         assert_expr(ge);
         lbool is_sat = m_context.check(0, nullptr);
         is_sat = adjust_result(is_sat);
-        m_was_sat = is_sat == l_true;
         if (is_sat == l_true) {
-            set_model(i);
+            m_context.get_model(m_last_model);
+            m_models.set(i, m_last_model.get());
         }
         pop_core(1);
         TRACE("opt", tout << is_sat << "\n";);
@@ -327,14 +328,15 @@ namespace opt {
         }
     }
 
-    void opt_solver::get_model_core(model_ref & m) {
-        if (m_was_sat) {
-            m_context.get_model(m);
-            if (!m) m = m_model; else m_model = m;
-        }
-        else {
-            m = nullptr;
-        }
+    void opt_solver::get_model_core(model_ref & m) {  
+        for (unsigned i = m_models.size(); i-- > 0; ) {
+            auto* mdl = m_models[i];
+            if (mdl) {
+                m = mdl;
+                return;
+            }
+        }        
+        m = m_last_model.get();
     }
     
     proof * opt_solver::get_proof() {

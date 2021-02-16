@@ -50,25 +50,33 @@ Notes:
 #include "muz/base/dl_rule_set.h"
 #include "muz/transforms/dl_mk_rule_inliner.h"
 #include "muz/spacer/spacer_qe_project.h"
+#include "muz/spacer/spacer_cluster.h"
 #include "muz/spacer/spacer_sat_answer.h"
+#include "muz/spacer/spacer_concretize.h"
 
 #define WEAKNESS_MAX 65535
 
 namespace spacer {
 
 /// pob -- proof obligation
-pob::pob (pob* parent, pred_transformer& pt,
-          unsigned level, unsigned depth, bool add_to_parent):
-    m_ref_count (0),
-    m_parent (parent), m_pt (pt),
-    m_post (m_pt.get_ast_manager ()),
-    m_binding(m_pt.get_ast_manager()),
-    m_new_post (m_pt.get_ast_manager ()),
-    m_level (level), m_depth (depth),
-    m_open (true), m_use_farkas (true), m_in_queue(false),
-    m_weakness(0), m_blocked_lvl(0) {
+pob::pob(pob *parent, pred_transformer &pt, unsigned level, unsigned depth,
+         bool add_to_parent)
+    : m_ref_count(0), m_parent(parent), m_pt(pt),
+      m_post(m_pt.get_ast_manager()), m_binding(m_pt.get_ast_manager()),
+      m_new_post(m_pt.get_ast_manager()), m_level(level), m_depth(depth),
+      m_open(true), m_use_farkas(true), m_in_queue(false), m_weakness(0),
+      m_blocked_lvl(0), m_is_conj(false),
+      m_conj_pattern(m_pt.get_ast_manager()), m_local_gen(true),
+      m_shd_concr(false), m_concr_pat(m_pt.get_ast_manager()),
+      m_subsume_pob(m_pt.get_ast_manager()), m_subsume_bindings(m_pt.get_ast_manager()), m_is_subsume_pob(false),
+      m_expand_bnd(false), m_gas(0) {
     if (add_to_parent && m_parent) {
         m_parent->add_child(*this);
+    }
+    if (m_parent) {
+        m_is_conj = m_parent->is_conj();
+        m_is_subsume_pob = m_parent->is_subsume_pob();
+        m_gas = m_parent->get_gas();
     }
 }
 
@@ -119,7 +127,7 @@ void pob::get_skolems(app_ref_vector &v) {
     for (unsigned i = 0, sz = m_binding.size(); i < sz; ++i) {
         expr* e;
         e = m_binding.get(i);
-        v.push_back (mk_zk_const (get_ast_manager(), i, get_sort(e)));
+        v.push_back (mk_zk_const (get_ast_manager(), i, e->get_sort()));
     }
 }
 
@@ -237,7 +245,7 @@ void derivation::exist_skolemize(expr* fml, app_ref_vector& vars, expr_ref& res)
     expr_safe_replace sub(m);
     for (unsigned i = 0, sz = vars.size(); i < sz; ++i) {
         expr* e = vars.get(i);
-        sub.insert(e, mk_zk_const(m, i, get_sort(e)));
+        sub.insert(e, mk_zk_const(m, i, e->get_sort()));
     }
     sub(fml, res);
 }
@@ -541,7 +549,7 @@ void lemma::mk_expr_core() {
         ptr_buffer<sort> sorts;
         svector<symbol> names;
         for (app* z : zks) {
-            sorts.push_back(get_sort(z));
+            sorts.push_back(z->get_sort());
             names.push_back(z->get_decl()->get_name());
         }
         m_body = m.mk_quantifier(forall_k, zks.size(),
@@ -756,6 +764,8 @@ void pred_transformer::collect_statistics(statistics& st) const
                m_must_reachable_watch.get_seconds ());
     st.update("time.spacer.ctp", m_ctp_watch.get_seconds());
     st.update("time.spacer.mbp", m_mbp_watch.get_seconds());
+    // -- Max cluster size can decrease during run
+    st.update("SPACER max cluster size", m_cluster_db.get_max_cluster_size());
 }
 
 void pred_transformer::reset_statistics()
@@ -1193,6 +1203,7 @@ expr_ref pred_transformer::get_origin_summary (model &mdl,
     for (auto* s : summary) {
         if (!is_quantifier(s) && !mdl.is_true(s)) {
             TRACE("spacer", tout << "Summary not true in the model: " << mk_pp(s, m) << "\n";);
+            return expr_ref(m);
         }
     }
     
@@ -1258,12 +1269,12 @@ void pred_transformer::get_pred_bg_invs(expr_ref_vector& out) {
 
 
 /// \brief Returns true if the obligation is already blocked by current lemmas
-bool pred_transformer::is_blocked (pob &n, unsigned &uses_level)
-{
+bool pred_transformer::is_blocked(pob &n, unsigned &uses_level,
+                                  model_ref *model = nullptr) {
     ensure_level (n.level ());
     prop_solver::scoped_level _sl (*m_solver, n.level ());
     m_solver->set_core (nullptr);
-    m_solver->set_model (nullptr);
+    m_solver->set_model(model);
 
     expr_ref_vector post(m), _aux(m);
     post.push_back (n.post ());
@@ -1335,7 +1346,7 @@ lbool pred_transformer::is_reachable(pob& n, expr_ref_vector* core,
                                      model_ref* model, unsigned& uses_level,
                                      bool& is_concrete, datalog::rule const*& r,
                                      bool_vector& reach_pred_used,
-                                     unsigned& num_reuse_reach)
+                                     unsigned& num_reuse_reach, bool use_iuc)
 {
     TRACE("spacer",
           tout << "is-reachable: " << head()->get_name() << " level: "
@@ -1349,7 +1360,8 @@ lbool pred_transformer::is_reachable(pob& n, expr_ref_vector* core,
 
     // prepare the solver
     prop_solver::scoped_level _sl(*m_solver, n.level());
-    prop_solver::scoped_subset_core _sc (*m_solver, !n.use_farkas_generalizer ());
+    prop_solver::scoped_subset_core _sc(
+        *m_solver, !(use_iuc && n.use_farkas_generalizer()));
     prop_solver::scoped_weakness _sw(*m_solver, 0,
                                      ctx.weak_abs() ? n.weakness() : UINT_MAX);
     m_solver->set_core(core);
@@ -1406,9 +1418,10 @@ lbool pred_transformer::is_reachable(pob& n, expr_ref_vector* core,
             r = find_rule(**model, is_concrete, reach_pred_used, num_reuse_reach);
             TRACE("spacer", 
                   tout << "reachable is_sat: " << is_sat << " "
-                  << r << " is_concrete " << is_concrete << " rused: " << reach_pred_used << "\n";
-                  ctx.get_datalog_context().get_rule_manager().display_smt2(*r, tout) << "\n";
-                  );
+                  << r << " is_concrete " << is_concrete << " rused: " << reach_pred_used << "\n";);
+            CTRACE("spacer", r,
+                   ctx.get_datalog_context().get_rule_manager().display_smt2(*r, tout);
+                   tout << "\n";);
             TRACE("spacer_sat", tout << "model is:\n" << **model << "\n";);
         }
 
@@ -2272,6 +2285,8 @@ context::context(fp_params const& params, ast_manager& m) :
     m_last_result(l_undef),
     m_inductive_lvl(0),
     m_expanded_lvl(0),
+    m_global_gen(nullptr),
+    m_expand_bnd_gen(nullptr),
     m_json_marshaller(this),
     m_trace_stream(nullptr) {
 
@@ -2290,6 +2305,7 @@ context::context(fp_params const& params, ast_manager& m) :
     m_pool1 = alloc(solver_pool, pool1_base.get(), max_num_contexts);
     m_pool2 = alloc(solver_pool, pool2_base.get(), max_num_contexts);
 
+    m_lmma_cluster = alloc(lemma_cluster_finder, m);
     updt_params();
 
     if (m_params.spacer_trace_file().is_non_empty_string()) {
@@ -2302,6 +2318,7 @@ context::context(fp_params const& params, ast_manager& m) :
 context::~context()
 {
     reset_lemma_generalizers();
+    dealloc(m_lmma_cluster);
     reset();
 
     if (m_trace_stream) {
@@ -2347,7 +2364,13 @@ void context::updt_params() {
     m_restart_initial_threshold = m_params.spacer_restart_initial_threshold();
     m_pdr_bfs = m_params.spacer_gpdr_bfs();
     m_use_bg_invs = m_params.spacer_use_bg_invs();
+    m_global = m_params.spacer_global();
+    m_expand_bnd = m_params.spacer_expand_bnd();
+    m_conjecture = m_params.spacer_conjecture();
+    m_use_sage = m_params.spacer_use_sage();
+    m_concretize = m_params.spacer_concretize();
 
+    m_use_iuc = m_params.spacer_use_iuc();
     if (m_use_gpdr) {
         // set options to be compatible with GPDR
         m_weak_abs = false;
@@ -2613,7 +2636,7 @@ void context::init_global_smt_params() {
     m.toggle_proof_mode(PGM_ENABLED);
     params_ref p;
     if (!m_use_eq_prop) {
-        p.set_uint("arith.propagation_mode", BP_NONE);
+        p.set_uint("arith.propagation_mode", (unsigned)bound_prop_mode::BP_NONE);
         p.set_bool("arith.auto_config_simplex", true);
         p.set_bool("arith.propagate_eqs", false);
         p.set_bool("arith.eager_eq_axioms", false);
@@ -2678,6 +2701,15 @@ void context::init_lemma_generalizers()
         m_lemma_generalizers.push_back(alloc(lemma_array_eq_generalizer, *this));
     }
 
+    if (m_global) {
+        m_global_gen = alloc(lemma_global_generalizer, *this);
+        m_lemma_generalizers.push_back(m_global_gen);
+    }
+
+    if (m_expand_bnd) {
+        m_expand_bnd_gen = alloc(lemma_expand_bnd_generalizer, *this);
+        m_lemma_generalizers.push_back(m_expand_bnd_gen);
+    }
     if (m_validate_lemmas) {
         m_lemma_generalizers.push_back(alloc(lemma_sanity_checker, *this));
     }
@@ -3070,6 +3102,8 @@ void context::log_expand_pob(pob &n) {
         if (n.parent()) pob_id = std::to_string(n.parent()->post()->get_id());
 
         *m_trace_stream << "** expand-pob: " << n.pt().head()->get_name()
+                        << (n.is_conj() ? "CONJ" : "")
+                        << (n.is_subsume_pob() ? " SUBS" : "")
                         << " level: " << n.level()
                         << " depth: " << (n.depth() - m_pob_queue.min_depth())
                         << " exprID: " << n.post()->get_id() << " pobID: " << pob_id << "\n"
@@ -3077,13 +3111,18 @@ void context::log_expand_pob(pob &n) {
     }
 
     TRACE("spacer", tout << "expand-pob: " << n.pt().head()->get_name()
+                         << (n.is_conj() ? "CONJ" : "")
+                         << (n.is_subsume_pob() ? " SUBS" : "")
                          << " level: " << n.level()
                          << " depth: " << (n.depth() - m_pob_queue.min_depth())
-                         << " fvsz: " << n.get_free_vars_size() << "\n"
+                         << " fvsz: " << n.get_free_vars_size()
+                         << " gas: " << n.get_gas() << "\n"
                          << mk_pp(n.post(), m) << "\n";);
 
     STRACE("spacer_progress",
            tout << "** expand-pob: " << n.pt().head()->get_name()
+                << (n.is_conj() ? "CONJ" : "")
+                << (n.is_subsume_pob() ? " SUBS" : "")
                 << " level: " << n.level()
                 << " depth: " << (n.depth() - m_pob_queue.min_depth()) << "\n"
                 << mk_epp(n.post(), m) << "\n\n";);
@@ -3208,14 +3247,22 @@ bool context::check_reachability ()
             break;
         case l_false:
             SASSERT(m_pob_queue.size() == old_sz);
+            // re-queue all pobs introduced by global gen and any pobs that can be blocked at a higher level
             for (auto pob : new_pobs) {
-                if (is_requeue(*pob)) {m_pob_queue.push(*pob);}
+                if ((pob->is_may_pob() && pob->post() != node->post()) || is_requeue(*pob)) {
+                    m_pob_queue.push(*pob);
+                }
             }
 
             if (m_pob_queue.is_root(*node)) {return false;}
             break;
         case l_undef:
             SASSERT(m_pob_queue.size() == old_sz);
+            // collapse may pobs if the reachability of one of them cannot
+            // be estimated
+            if ((node->is_may_pob()) && new_pobs.size() == 0) {
+                close_all_may_parents(node);
+            }
             for (auto pob : new_pobs) {m_pob_queue.push(*pob);}
             break;
         }
@@ -3270,9 +3317,9 @@ bool context::is_reachable(pob &n)
     unsigned saved = n.level ();
     // TBD: don't expose private field
     n.m_level = infty_level ();
-    lbool res = n.pt().is_reachable(n, nullptr, &mdl,
-                                    uses_level, is_concrete, r,
-                                    reach_pred_used, num_reuse_reach);
+    lbool res =
+        n.pt().is_reachable(n, nullptr, &mdl, uses_level, is_concrete, r,
+                            reach_pred_used, num_reuse_reach, m_use_iuc);
     n.m_level = saved;
 
     if (res != l_true || !is_concrete) {
@@ -3446,14 +3493,15 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
     log_expand_pob(n);
 
     stopwatch watch;
-    IF_VERBOSE (1, verbose_stream () << "expand: " << n.pt ().head ()->get_name ()
-                << " (" << n.level () << ", "
+    IF_VERBOSE(1, verbose_stream()
+                      << "expand: " << n.pt().head()->get_name() << " ("
+                      << n.level() << ", "
                 << (n.depth () - m_pob_queue.min_depth ()) << ") "
                 << (n.use_farkas_generalizer () ? "FAR " : "SUB ")
-                << " w(" << n.weakness() << ") "
-                << n.post ()->get_id ();
-                verbose_stream().flush ();
-                watch.start (););
+                      << (n.is_conj() ? "CONJ " : "")
+                      << (n.is_subsume_pob() ? " SUBS" : "") << " w("
+                      << n.weakness() << ") " << n.post()->get_id();
+               verbose_stream().flush(); watch.start(););
 
     // used in case n is unreachable
     unsigned uses_level = infty_level ();
@@ -3482,11 +3530,53 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
         STRACE("spacer_progress",
                tout << "This pob can be blocked by instantiation\n";);
     }
+    if ((n.is_may_pob()) && n.get_gas() == 0) {
+        TRACE("global", tout << "Cant prove may pob. Collapsing "
+                             << mk_pp(n.post(), m) << "\n";);
+        m_stats.m_num_pob_ofg++;
+        return l_undef;
+    }
+    // Decide whether to concretize pob
+    // get a model that satisfies the pob and the current set of lemmas
+    // TODO: if push_pob is enabled, avoid calling is_blocked twice
+    if (m_concretize && n.should_concretize() &&
+        !n.pt().is_blocked(n, uses_level, &model)) {
+        TRACE("global", tout << "going to concretize pob " << mk_pp(n.post(), m)
+                             << ". Will attempt " << n.get_gas()
+                             << " more times\n";);
+        spacer::concretize concr(m);
+        expr_ref_vector conc_fml(m);
+        bool success = concr.mk_concr(expr_ref(n.post(), m), model, conc_fml,
+                                      n.get_concr_pat());
 
+        if (success) {
+            pob *new_pob = n.pt().mk_pob(n.parent(), n.level(), n.depth(),
+                                         mk_and(conc_fml), n.get_binding());
+
+            TRACE("concretize", tout << "pob" << mk_pp(n.post(), m)
+                                     << " is concretized into "
+                                     << mk_pp(new_pob->post(), m) << "\n";);
+            out.push_back(&(*new_pob));
+            out.push_back(&n);
+            IF_VERBOSE(1, verbose_stream()
+                              << " C " << std::fixed << std::setprecision(2)
+                              << watch.get_seconds() << "\n";);
+            unsigned gas = n.get_gas();
+            SASSERT(gas > 0);
+            new_pob->set_gas(gas);
+            // decrease gas for n to limit the number of times it is going to be
+            // split
+            n.set_gas(gas - 1);
+            m_stats.m_num_concretize++;
+            return l_undef;
+        }
+    }
+    model = nullptr;
     predecessor_eh();
 
-    lbool res = n.pt ().is_reachable (n, &cube, &model, uses_level, is_concrete, r,
-                                      reach_pred_used, num_reuse_reach);
+    lbool res =
+        n.pt().is_reachable(n, &cube, &model, uses_level, is_concrete, r,
+                            reach_pred_used, num_reuse_reach, m_use_iuc);
     if (model) model->set_model_completion(false);
     if (res == l_undef && model) res = handle_unknown(n, r, *model);
 
@@ -3534,7 +3624,18 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                     out.push_back (next);
                 }
             }
+            if(n.is_subsume_pob())
+                m_stats.m_num_subsume_pob_reachable++;
+            if(n.is_conj())
+                m_stats.m_num_conj_failed++;
 
+            CTRACE("global", n.is_conj(),
+                   tout << "Failed to block conjecture "
+                   << n.post()->get_id() << "\n";);
+
+            CTRACE("global", n.is_subsume_pob(),
+                   tout << "Failed to block subsume generalization "
+                        << mk_pp(n.post(), m) << "\n";);
 
             IF_VERBOSE(1, verbose_stream () << (next ? " X " : " T ")
                        << std::fixed << std::setprecision(2)
@@ -3578,35 +3679,66 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                   tout << mk_pp(cube[j].get(), m) << "\n";);
 
 
+        if(n.is_conj()) m_stats.m_num_conj_success++;
+        if(n.is_subsume_pob()) m_stats.m_num_subsume_pob_blckd++;
         pob_ref nref(&n);
         // -- create lemma from a pob and last unsat core
-        lemma_ref lemma = alloc(class lemma, pob_ref(&n), cube, uses_level);
+        lemma_ref lemma_pob;
+        if (n.do_local_gen()) {
+            lemma_pob = alloc(class lemma, pob_ref(&n), cube, uses_level);
 
         // -- run all lemma generalizers
         for (unsigned i = 0;
              // -- only generalize if lemma was constructed using farkas
-             n.use_farkas_generalizer () && !lemma->is_false() &&
-                 i < m_lemma_generalizers.size(); ++i) {
+                 n.use_farkas_generalizer() && !lemma_pob->is_false() &&
+                 i < m_lemma_generalizers.size();
+                 ++i) {
             checkpoint ();
-            (*m_lemma_generalizers[i])(lemma);
+                (*m_lemma_generalizers[i])(lemma_pob);
         }
-        DEBUG_CODE(
-            lemma_sanity_checker sanity_checker(*this);
-            sanity_checker(lemma);
-            );
+        } else {
+            expr_ref_vector pob_cube(m);
+            n.get_simp_post(pob_cube);
+            m_stats.m_non_local_gen++;
+            lemma_pob = alloc(class lemma, pob_ref(&n), pob_cube, n.level());
+            TRACE("global", tout << " stopped local gen on pob "
+                                 << mk_pp(n.post(), m) << " with id "
+                                 << n.post()->get_id() << "\n lemma learned "
+                                 << mk_and(lemma_pob->get_cube()) << "\n";);
+            if (m_global_gen != nullptr) (*m_global_gen)(lemma_pob);
+            if (m_expand_bnd_gen != nullptr) (*m_expand_bnd_gen)(lemma_pob);
+        }
 
+        CTRACE("global", n.is_conj(),
+               tout << " Blocked conjecture pob " << mk_pp(n.post(), m)
+                    << " using lemma " << mk_pp(lemma_pob->get_expr(), m)
+                    << " Level " << lemma_pob->level() << " id "
+                    << n.post()->get_id() << "\n";);
 
-        TRACE("spacer", tout << "invariant state: "
-              << (is_infty_level(lemma->level())?"(inductive)":"")
-              <<  mk_pp(lemma->get_expr(), m) << "\n";);
+        CTRACE("global", n.is_subsume_pob(),
+               tout << " Blocked subsume pob " << mk_pp(n.post(), m)
+                    << " using lemma " << mk_pp(lemma_pob->get_expr(), m)
+                    << " Level " << lemma_pob->level() << " id "
+                    << n.post()->get_id() << "\n";);
 
-        bool v = n.pt().add_lemma (lemma.get());
-        if (v) { m_stats.m_num_lemmas++; }
+        DEBUG_CODE(lemma_sanity_checker sanity_checker(*this);
+                   sanity_checker(lemma_pob););
+
+        TRACE("spacer",
+              tout << "invariant state: "
+                   << (is_infty_level(lemma_pob->level()) ? "(inductive)" : "")
+                   << mk_pp(lemma_pob->get_expr(), m) << "\n";);
+
+        bool v = n.pt().add_lemma(lemma_pob.get());
+        if (v) {
+            if (m_global) m_lmma_cluster->cluster(lemma_pob);
+            m_stats.m_num_lemmas++;
+        }
 
         // Optionally update the node to be the negation of the lemma
         if (v && m_use_lemma_as_pob) {
             expr_ref c(m);
-            c = mk_and(lemma->get_cube());
+            c = mk_and(lemma_pob->get_cube());
             // check that the post condition is different
             if (c  != n.post()) {
                 pob *f = n.pt().find_pob(n.parent(), c);
@@ -3620,6 +3752,65 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
                     out.push_back(f);
                 }
             }
+        }
+
+        if (n.get_subsume_pob().size() > 0 && n.get_gas() > 0) {
+            expr_ref c(m);
+            c = mk_and(n.get_subsume_pob());
+            unsigned level = n.get_may_pob_lvl();
+            pob *f = n.pt().find_pob(&get_root(), c);
+            // skip if a similar pob is already in the queue
+            if (!f || !f->is_in_queue()) {
+                // create pob conjecture at the desired depth
+                pob *new_pob = n.pt().mk_pob(&get_root(), level, n.depth(), c,
+                                             n.get_subsume_bindings());
+                // since the level of pob is going to be incremented, new pob
+                // will have higher priority
+                new_pob->set_subsume_pob();
+                unsigned gas = n.get_gas();
+                SASSERT(gas > 0);
+                new_pob->set_gas(gas - 1);
+                n.set_gas(gas - 1);
+                TRACE("global",
+                      tout << "Attempting to block pob " << mk_pp(n.post(), m)
+                           << " using generalization "
+                           << mk_pp(new_pob->post(), m) << " with gas "
+                           << new_pob->get_gas() << "\n";);
+                out.push_back(&(*new_pob));
+                m_stats.m_num_subsume_pobs++;
+            } else
+                TRACE("global",
+                      tout << "duplicate pob conjecture found. Did not "
+                              "add to pob_queue\n";);
+        }
+
+        // conjecture pob
+        if (m_conjecture && n.get_conj_pattern().size() > 0 &&
+            n.get_gas() > 0) {
+            expr_ref c(m);
+            c = mk_and(n.get_conj_pattern());
+            unsigned level = n.get_may_pob_lvl();
+            pob *f = n.pt().find_pob(&get_root(), c);
+            // skip if new pob is already in the queue
+            if (!f || !f->is_in_queue()) {
+                // create abstract pob
+                app_ref_vector empty_binding(m);
+                f = n.pt().mk_pob(&get_root(), level, n.depth(), c,
+                                  empty_binding);
+                f->set_conj();
+                unsigned gas = n.get_gas();
+                SASSERT(gas > 0);
+                f->set_gas(gas - 1);
+                n.set_gas(gas - 1);
+                out.push_back(f);
+                TRACE("global", tout << " conjecture " << mk_pp(n.post(), m)
+                                     << " id is " << n.post()->get_id()
+                                     << "\n into pob " << c << " id is "
+                                     << f->post()->get_id() << "\n";);
+                m_stats.m_num_conj++;
+            } else
+                TRACE("global", tout << "duplicate conjecture found. Did not "
+                                        "add to pob_queue\n";);
         }
 
         // schedule the node to be placed back in the queue
@@ -3637,6 +3828,12 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
     }
     case l_undef:
         // something went wrong
+        // if the pob is a may pob, bail out
+        if (n.is_may_pob()) {
+            n.close();
+            m_stats.m_expand_pob_undef++;
+            return l_undef;
+        }
         if (n.weakness() < 10 /* MAX_WEAKENSS */) {
             bool has_new_child = false;
             SASSERT(m_weak_abs);
@@ -3933,6 +4130,11 @@ bool context::create_children(pob& n, datalog::rule const& r,
                        !mdl.is_true(n.post())))
     { kid->reset_derivation(); }
 
+    if (kid->is_may_pob()) {
+        SASSERT(n.get_gas() > 0);
+        n.set_gas(n.get_gas() - 1);
+        kid->set_gas(n.get_gas() - 1);
+    }
     out.push_back(kid);
     m_stats.m_num_queries++;
     return true;
@@ -3971,6 +4173,17 @@ void context::collect_statistics(statistics& st) const
     st.update("SPACER num lemmas", m_stats.m_num_lemmas);
     // -- number of restarts taken
     st.update("SPACER restarts", m_stats.m_num_restarts);
+    // -- number of time pob abstraction was invoked
+    st.update("SPACER conj", m_stats.m_num_conj);
+    st.update("SPACER conj success", m_stats.m_num_conj_success);
+    st.update("SPACER conj failed",
+              m_stats.m_num_conj_failed);
+    st.update("SPACER pob out of gas", m_stats.m_num_pob_ofg);
+    st.update("SPACER subsume pob", m_stats.m_num_subsume_pobs);
+    st.update("SPACER subsume success", m_stats.m_num_subsume_pob_reachable);
+    st.update("SPACER subsume failed", m_stats.m_num_subsume_pob_blckd);
+    st.update("SPACER concretize", m_stats.m_num_concretize);
+    st.update("SPACER non local gen", m_stats.m_non_local_gen);
 
     // -- time to initialize the rules
     st.update ("time.spacer.init_rules", m_init_rules_watch.get_seconds ());
@@ -3991,6 +4204,7 @@ void context::collect_statistics(statistics& st) const
     for (unsigned i = 0; i < m_lemma_generalizers.size(); ++i) {
         m_lemma_generalizers[i]->collect_statistics(st);
     }
+    m_lmma_cluster->collect_statistics(st);
 }
 
 void context::reset_statistics()
@@ -4008,6 +4222,7 @@ void context::reset_statistics()
         m_lemma_generalizers[i]->reset_statistics();
     }
 
+    m_lmma_cluster->reset_statistics();
     m_init_rules_watch.reset ();
     m_solve_watch.reset ();
     m_propagate_watch.reset ();
@@ -4140,6 +4355,10 @@ inline bool pob_lt_proc::operator() (const pob *pn1, const pob *pn2) const
 
     if (n1.depth() != n2.depth()) { return n1.depth() < n2.depth(); }
 
+    if (n1.is_subsume_pob() != n2.is_subsume_pob()) { return n1.is_subsume_pob(); }
+    if (n1.is_conj() != n2.is_conj()) { return n1.is_conj(); }
+
+    if (n1.get_gas() != n2.get_gas()) { return n1.get_gas() > n2.get_gas(); }
     // -- a more deterministic order of proof obligations in a queue
     // if (!n1.get_context ().get_params ().spacer_nondet_tie_break ())
     {
@@ -4192,6 +4411,31 @@ inline bool pob_lt_proc::operator() (const pob *pn1, const pob *pn2) const
     //   return &n1 < &n2;
 }
 
-
-
+void pred_transformer::extract_nums(vector<rational> &res) const {
+    spacer::extract_nums(m_init, res);
+    spacer::extract_nums(m_transition, res);
+}
+// set gas of each may parent to 0
+// TODO: close siblings as well. kids of a pob are not stored in the pob
+void context::close_all_may_parents(pob_ref node) {
+    pob_ref_vector to_do;
+    to_do.push_back(node.get());
+    while (to_do.size() != 0) {
+        pob_ref t = to_do.back();
+        t->set_gas(0);
+        if (t->is_may_pob()) {
+            t->close();
+        } else
+            break;
+        to_do.pop_back();
+        to_do.push_back(t->parent());
+    }
+}
+// construct a simplified version of the post
+void pob::get_simp_post(expr_ref_vector &pob_cube) {
+    pob_cube.reset();
+    pob_cube.push_back(m_post);
+    flatten_and(pob_cube);
+    simplify_bounds(pob_cube);
+}
 }

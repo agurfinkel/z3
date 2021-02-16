@@ -43,12 +43,12 @@ typedef enum { HT_FREE,
 
 template<typename T>
 class default_hash_entry {
-    unsigned         m_hash; //!< cached hash code
+    unsigned         m_hash{ 0 }; //!< cached hash code
     hash_entry_state m_state;
     T                m_data;
 public:
     typedef T         data;
-    default_hash_entry():m_state(HT_FREE) {}
+    default_hash_entry():m_state(HT_FREE), m_data() {}
     unsigned get_hash() const  { return m_hash; }
     bool is_free() const { return m_state == HT_FREE; }
     bool is_deleted() const { return m_state == HT_DELETED; }
@@ -277,9 +277,9 @@ public:
         m_capacity    = source.m_capacity;
         std::swap(m_table, source.m_table);
         m_size        = source.m_size;
-        m_num_deleted = 0;
+        m_num_deleted = source.m_num_deleted;
         HS_CODE({
-            m_st_collision = 0;
+            m_st_collision = source.m_st_collision;
         });
     }
     

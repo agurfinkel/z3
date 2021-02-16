@@ -79,6 +79,10 @@ public:
 
     unsigned get_num_assertions() const override;
     expr * get_assertion(unsigned idx) const override;
+    void set_phase(expr* e) override { }
+    phase* get_phase() override { return nullptr; }
+    void set_phase(phase* p) override { }
+    void move_to_front(expr* e) override { }
 
 
     expr_ref_vector cube(expr_ref_vector& vars, unsigned ) override {
@@ -96,19 +100,6 @@ public:
     expr_ref_vector get_trail() override {
         throw default_exception("cannot retrieve trail from solvers created using tactics");
     }
-
-    expr_ref get_implied_value(expr* e) override {
-        return expr_ref(e, m);
-    }
-
-    expr_ref get_implied_lower_bound(expr* e) override {
-        return expr_ref(e, m);
-    }
-
-    expr_ref get_implied_upper_bound(expr* e) override {
-        return expr_ref(e, m);
-    }
-
 };
 
 ast_manager& tactic2solver::get_manager() const { return m_assertions.get_manager(); }

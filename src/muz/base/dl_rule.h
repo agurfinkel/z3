@@ -62,7 +62,7 @@ namespace datalog {
                 m_func = n->get_decl();
             }
             else if (m_dt.is_accessor(n)) {
-                sort* s = m.get_sort(n->get_arg(0));
+                sort* s = n->get_arg(0)->get_sort();
                 SASSERT(m_dt.is_datatype(s));
                 if (m_dt.get_datatype_constructors(s)->size() > 1) {
                     m_found = true;
@@ -287,13 +287,13 @@ namespace datalog {
     class rule : public accounted_object {
         friend class rule_manager;
 
-        app *    m_head;
-        proof*   m_proof;
+        app*     m_head{ nullptr };
+        proof*   m_proof{ nullptr };
         unsigned m_tail_size:20;
         // unsigned m_reserve:12;
-        unsigned m_ref_cnt;
-        unsigned m_positive_cnt;
-        unsigned m_uninterp_cnt;
+        unsigned m_ref_cnt{ 0 };
+        unsigned m_positive_cnt{ 0 };
+        unsigned m_uninterp_cnt{ 0 };
         symbol   m_name;
         /**
            The following field is an array of tagged pointers. 

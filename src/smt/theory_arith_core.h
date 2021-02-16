@@ -31,7 +31,7 @@ namespace smt {
     void theory_arith<Ext>::found_unsupported_op(app * n) {
         if (!m_found_unsupported_op) {
             TRACE("arith", tout << "found non supported expression:\n" << mk_pp(n, m) << "\n";);
-            ctx.push_trail(value_trail<context, bool>(m_found_unsupported_op));
+            ctx.push_trail(value_trail<bool>(m_found_unsupported_op));
             m_found_unsupported_op = true;
         }
     }
@@ -39,10 +39,10 @@ namespace smt {
     template<typename Ext>
     void theory_arith<Ext>::found_underspecified_op(app * n) {
         m_underspecified_ops.push_back(n);
-        ctx.push_trail(push_back_vector<context, ptr_vector<app>>(m_underspecified_ops));
+        ctx.push_trail(push_back_vector<ptr_vector<app>>(m_underspecified_ops));
         if (!m_found_underspecified_op) {
             TRACE("arith", tout << "found underspecified expression:\n" << mk_pp(n, m) << "\n";);
-            ctx.push_trail(value_trail<context, bool>(m_found_underspecified_op));
+            ctx.push_trail(value_trail<bool>(m_found_underspecified_op));
             m_found_underspecified_op = true;
         }
 
@@ -852,7 +852,7 @@ namespace smt {
             SASSERT(!has_var_kind(get_var_row(s), BASE));
         }
         TRACE("init_row_bug", tout << "after:\n"; display_row_info(tout, r););
-        if (propagation_mode() != BP_NONE)
+        if (propagation_mode() != bound_prop_mode::BP_NONE)
             mark_row_for_bound_prop(r_id);
         SASSERT(r.is_coeff_of(s, numeral::one()));
         SASSERT(wf_row(r_id));
@@ -1376,7 +1376,7 @@ namespace smt {
             else {
                 if (n1->get_owner_id() > n2->get_owner_id())
                     std::swap(n1, n2);
-                sort * st       = m.get_sort(n1->get_owner());
+                sort * st       = n1->get_owner()->get_sort();
                 app * minus_one = m_util.mk_numeral(rational::minus_one(), st);
                 app * s         = m_util.mk_add(n1->get_owner(), m_util.mk_mul(minus_one, n2->get_owner()));
                 ctx.internalize(s, false);
@@ -1492,7 +1492,7 @@ namespace smt {
             return FC_CONTINUE;
         if (delayed_assume_eqs())
             return FC_CONTINUE;
-        ctx.push_trail(value_trail<context, unsigned>(m_final_check_idx));
+        ctx.push_trail(value_trail<unsigned>(m_final_check_idx));
         m_liberal_final_check = true;
         m_changed_assignment  = false;
         final_check_status result = final_check_core();
@@ -1728,7 +1728,7 @@ namespace smt {
     template<typename Ext>
     void theory_arith<Ext>::add_row(unsigned rid1, const numeral & coeff, unsigned rid2, bool apply_gcd_test) {
         m_stats.m_add_rows++;
-        if (propagation_mode() != BP_NONE)
+        if (propagation_mode() != bound_prop_mode::BP_NONE)
             mark_row_for_bound_prop(rid1);
         row & r1 = m_rows[rid1];
         row & r2 = m_rows[rid2];
@@ -2278,9 +2278,9 @@ namespace smt {
         if (m_blands_rule)
             return select_smallest_var();
         switch (m_params.m_arith_pivot_strategy) {
-        case ARITH_PIVOT_GREATEST_ERROR:
+        case arith_pivot_strategy::ARITH_PIVOT_GREATEST_ERROR:
             return select_greatest_error_var();
-        case ARITH_PIVOT_LEAST_ERROR:
+        case arith_pivot_strategy::ARITH_PIVOT_LEAST_ERROR:
             return select_least_error_var();
         default:
             return select_smallest_var();
@@ -2442,7 +2442,7 @@ namespace smt {
         push_bound_trail(v, l, false);
         set_bound(b, false);
 
-        if (propagation_mode() != BP_NONE)
+        if (propagation_mode() != bound_prop_mode::BP_NONE)
             mark_rows_for_bound_prop(v);
 
         return true;
@@ -2490,7 +2490,7 @@ namespace smt {
         push_bound_trail(v, u, true);
         set_bound(b, true);
 
-        if (propagation_mode() != BP_NONE)
+        if (propagation_mode() != bound_prop_mode::BP_NONE)
             mark_rows_for_bound_prop(v);
 
         return true;
@@ -2534,7 +2534,8 @@ namespace smt {
         b1->push_justification(ante, numeral(1), coeffs_enabled());
         b2->push_justification(ante, numeral(1), coeffs_enabled());
         TRACE("arith_conflict", tout << "bound conflict v" << b1->get_var() << "\n";
-              tout << "bounds: " << b1 << " " << b2 << "\n";);
+              display_bound(tout, b1, 0);
+              display_bound(tout, b2, 0););
         set_conflict(ante, ante, "farkas");
     }
 

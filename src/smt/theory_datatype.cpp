@@ -142,9 +142,9 @@ namespace smt {
             << mk_pp(c, m) << " " << mk_pp(e, m) << "\n";);
         m_stats.m_assert_cnstr++;
         SASSERT(m_util.is_constructor(c));
-        SASSERT(m_util.is_datatype(m.get_sort(e)));
+        SASSERT(m_util.is_datatype(e->get_sort()));
 
-        SASSERT(c->get_range() == m.get_sort(e));
+        SASSERT(c->get_range() == e->get_sort());
         ptr_vector<expr> args;
         ptr_vector<func_decl> const & accessors = *m_util.get_constructor_accessors(c);
         SASSERT(c->get_arity() == accessors.size());
@@ -274,7 +274,7 @@ namespace smt {
             assert_update_field_axioms(n);
         }
         else {
-            sort * s      = m.get_sort(n->get_owner());
+            sort * s      = n->get_owner()->get_sort();
             if (m_util.get_datatype_num_constructors(s) == 1) {
                 func_decl * c = m_util.get_datatype_constructors(s)->get(0);
                 assert_is_constructor_axiom(n, c, null_literal);
@@ -333,7 +333,7 @@ namespace smt {
             //
             for (unsigned i = 0; i < num_args; i++) {
                 enode * arg = e->get_arg(i);
-                sort * s    = m.get_sort(arg->get_owner());
+                sort * s    = arg->get_owner()->get_sort();
                 if (m_autil.is_array(s) && m_util.is_datatype(get_array_range(s))) {
                     app_ref def(m_autil.mk_default(arg->get_owner()), m);
                     if (!ctx.e_internalized(def)) {
@@ -369,6 +369,7 @@ namespace smt {
     }
 
     void theory_datatype::apply_sort_cnstr(enode * n, sort * s) {
+        force_push();
         // Remark: If s is an infinite sort, then it is not necessary to create
         // a theory variable. 
         // 
@@ -397,6 +398,7 @@ namespace smt {
     }
 
     void theory_datatype::new_eq_eh(theory_var v1, theory_var v2) {
+        force_push();
         m_find.merge(v1, v2);
     }
 
@@ -409,6 +411,7 @@ namespace smt {
     }
 
     void theory_datatype::assign_eh(bool_var v, bool is_true) {
+        force_push();
         enode * n     = ctx.bool_var2enode(v);
         if (!is_recognizer(n))
             return;
@@ -441,6 +444,7 @@ namespace smt {
     }
 
     void theory_datatype::relevant_eh(app * n) {
+        force_push();
         TRACE("datatype", tout << "relevant_eh: " << mk_pp(n, m) << "\n";);
         SASSERT(ctx.relevancy());
         if (is_recognizer(n)) {
@@ -472,6 +476,7 @@ namespace smt {
     }
 
     final_check_status theory_datatype::final_check_eh() {
+        force_push();
         int num_vars = get_num_vars();
         final_check_status r = FC_DONE;
         final_check_st _guard(this); 
@@ -523,7 +528,7 @@ namespace smt {
                 }
                 found = true;
             }
-            sort * s = m.get_sort(arg->get_owner());
+            sort * s = arg->get_owner()->get_sort();
             if (m_autil.is_array(s) && m_util.is_datatype(get_array_range(s))) {
                 for (enode* aarg : get_array_args(arg)) {
                     if (aarg->get_root() == child->get_root()) {
@@ -591,7 +596,7 @@ namespace smt {
             }
             // explore `arg` (with parent)
             expr* earg = arg->get_owner();
-            sort* s = m.get_sort(earg);
+            sort* s = earg->get_sort();
             if (m_util.is_datatype(s)) {
                 m_parent.insert(arg->get_root(), parent);
                 oc_push_stack(arg);
@@ -605,7 +610,7 @@ namespace smt {
                         occurs_check_explain(parent, aarg);
                         return true;
                     }
-                    if (m_util.is_datatype(m.get_sort(aarg->get_owner()))) {
+                    if (m_util.is_datatype(aarg->get_owner()->get_sort())) {
                         m_parent.insert(aarg->get_root(), parent);
                         oc_push_stack(aarg);
                     }
@@ -789,7 +794,7 @@ namespace smt {
                 ctx.set_conflict(ctx.mk_justification(ext_theory_conflict_justification(get_id(), r, 0, nullptr, 1, &p)));
             }
             if (d1->m_constructor == nullptr) {
-                m_trail_stack.push(set_ptr_trail<theory_datatype, enode>(d1->m_constructor)); 
+                m_trail_stack.push(set_ptr_trail<enode>(d1->m_constructor)); 
                 // check whether there is a recognizer in d1 that conflicts with d2->m_constructor;
                 if (!d1->m_recognizers.empty()) {
                     unsigned c_idx = m_util.get_constructor_idx(d2->m_constructor->get_decl());
@@ -842,7 +847,7 @@ namespace smt {
             }
             SASSERT(val == l_undef || (val == l_false && d->m_constructor == 0));
             d->m_recognizers[c_idx] = recognizer;
-            m_trail_stack.push(set_vector_idx_trail<theory_datatype, enode>(d->m_recognizers, c_idx));
+            m_trail_stack.push(set_vector_idx_trail<enode>(d->m_recognizers, c_idx));
             if (val == l_false) {
                 propagate_recognizer(v, recognizer);
             }
@@ -859,7 +864,7 @@ namespace smt {
         unsigned num_unassigned  = 0;
         unsigned unassigned_idx  = UINT_MAX;
         enode * n       = get_enode(v);
-        sort * dt       = m.get_sort(n->get_owner());
+        sort * dt       = n->get_owner()->get_sort();
         var_data * d    = m_var_data[v];
         if (d->m_recognizers.empty()) {
             theory_var w = recognizer->get_arg(0)->get_th_var(get_id());
@@ -942,7 +947,7 @@ namespace smt {
     void theory_datatype::mk_split(theory_var v) {
         v                     = m_find.find(v);
         enode * n             = get_enode(v);
-        sort * s              = m.get_sort(n->get_owner());
+        sort * s              = n->get_owner()->get_sort();
         func_decl * non_rec_c = m_util.get_non_rec_constructor(s); 
         unsigned non_rec_idx  = m_util.get_constructor_idx(non_rec_c);
         var_data * d          = m_var_data[v];

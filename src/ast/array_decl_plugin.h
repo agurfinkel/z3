@@ -144,7 +144,7 @@ public:
     array_recognizers(family_id fid):m_fid(fid) {}
     family_id get_family_id() const { return m_fid; }
     bool is_array(sort* s) const { return is_sort_of(s, m_fid, ARRAY_SORT);}
-    bool is_array(expr* n) const { return is_array(get_sort(n)); }
+    bool is_array(expr* n) const { return is_array(n->get_sort()); }
     bool is_select(expr* n) const { return is_app_of(n, m_fid, OP_SELECT); }
     bool is_store(expr* n) const { return is_app_of(n, m_fid, OP_STORE); }
     bool is_const(expr* n) const { return is_app_of(n, m_fid, OP_CONST_ARRAY); }
@@ -161,6 +161,8 @@ public:
     bool is_as_array(func_decl* f) const { return is_decl_of(f, m_fid, OP_AS_ARRAY); }
     bool is_set_has_size(func_decl* f) const { return is_decl_of(f, m_fid, OP_SET_HAS_SIZE); }
     bool is_set_card(func_decl* f) const { return is_decl_of(f, m_fid, OP_SET_CARD); }
+    bool is_default(func_decl* f) const { return is_decl_of(f, m_fid, OP_ARRAY_DEFAULT); }
+    bool is_default(expr* n) const { return is_app_of(n, m_fid, OP_ARRAY_DEFAULT); }
     bool is_as_array(func_decl* f, func_decl*& g) const { return is_decl_of(f, m_fid, OP_AS_ARRAY) && (g = get_as_array_func_decl(f), true); }
     func_decl * get_as_array_func_decl(expr * n) const;
     func_decl * get_as_array_func_decl(func_decl* f) const;
@@ -196,6 +198,10 @@ public:
     }
 
     app * mk_select(ptr_vector<expr> const& args) {
+        return mk_select(args.size(), args.c_ptr());
+    }
+
+    app * mk_select(ptr_buffer<expr> const& args) {
         return mk_select(args.size(), args.c_ptr());
     }
 

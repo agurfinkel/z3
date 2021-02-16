@@ -36,6 +36,7 @@ Revision History:
 #include "model/seq_factory.h"
 #include "model/datatype_factory.h"
 #include "model/numeral_factory.h"
+#include "model/fpa_factory.h"
 
 
 model::model(ast_manager & m):
@@ -62,7 +63,7 @@ void model::updt_params(params_ref const & p) {
 
 void model::copy_const_interps(model const & source) {
     for (auto const& kv : source.m_interp) 
-        register_decl(kv.m_key, kv.m_value);
+        register_decl(kv.m_key, kv.m_value.second);
 }
 
 void model::copy_func_interps(model const & source) {
@@ -99,11 +100,13 @@ bool model::eval_expr(expr * e, expr_ref & result, bool model_completion) {
 value_factory* model::get_factory(sort* s) {
     if (m_factories.plugins().empty()) {
         seq_util su(m);
+        fpa_util fu(m);
         m_factories.register_plugin(alloc(array_factory, m, *this));
         m_factories.register_plugin(alloc(datatype_factory, m, *this));
         m_factories.register_plugin(alloc(bv_factory, m));
         m_factories.register_plugin(alloc(arith_factory, m));
         m_factories.register_plugin(alloc(seq_factory, m, su.get_family_id(), *this));
+        m_factories.register_plugin(alloc(fpa_value_factory, m, fu.get_family_id()));
     }
     family_id fid = s->get_family_id();
     return m_factories.get_plugin(fid);
@@ -165,12 +168,14 @@ model * model::translate(ast_translation & translator) const {
 
     // Translate const interps
     for (auto const& kv : m_interp) {
-        res->register_decl(translator(kv.m_key), translator(kv.m_value));
+        func_decl_ref d(translator(kv.m_key), translator.to());
+        expr_ref v(translator(kv.m_value.second), translator.to());
+        res->register_decl(d, v);
     }
     // Translate func interps
     for (auto const& kv : m_finterp) {
-        func_interp * fi = kv.m_value;
-        res->register_decl(translator(kv.m_key), fi->translate(translator));
+        func_interp* fi = kv.m_value->translate(translator);
+        res->register_decl(translator(kv.m_key), fi);
     }
 
     // Translate usort interps
@@ -198,6 +203,7 @@ struct model::top_sort : public ::top_sort<func_decl> {
     {
         params_ref p;
         p.set_bool("elim_ite", false);
+        p.set_bool("ite_extra_rules", true);
         m_rewrite.updt_params(p);
     }
 
@@ -262,7 +268,7 @@ void model::collect_deps(top_sort& ts) {
         ts.insert(kv.m_key, collect_deps(ts, kv.m_value));
     }
     for (auto const& kv : m_interp) {
-        ts.insert(kv.m_key, collect_deps(ts, kv.m_value));
+        ts.insert(kv.m_key, collect_deps(ts, kv.m_value.second));
     }
 }
 
@@ -448,8 +454,10 @@ expr_ref model::cleanup_expr(top_sort& ts, expr* e, unsigned current_partition) 
                 // only expand auxiliary definitions that occur once.
                 if (can_inline_def(ts, f)) {
                     fi = get_func_interp(f);
-                    new_t = fi->get_array_interp(f);
-                    TRACE("model", tout << "array interpretation:" << new_t << "\n";);
+                    if (fi) {
+                        new_t = fi->get_array_interp(f);
+                        TRACE("model", tout << "array interpretation:" << new_t << "\n";);
+                    }
                 }
             }
 
@@ -476,6 +484,7 @@ expr_ref model::cleanup_expr(top_sort& ts, expr* e, unsigned current_partition) 
             }
             
             if (t != new_t.get()) trail.push_back(new_t);
+            CTRACE("model", (t != new_t.get()), tout << mk_bounded_pp(t, m) << " " << new_t << "\n";);
             todo.pop_back();
             cache.insert(t, new_t);
             break;
@@ -500,6 +509,17 @@ void model::remove_decls(ptr_vector<func_decl> & decls, func_decl_set const & s)
         }
     }
     decls.shrink(j);
+}
+
+expr_ref model::unfold_as_array(expr* e) {
+    func_decl* f = nullptr;
+    array_util autil(m);
+    if (!autil.is_as_array(e, f))
+        return expr_ref(e, m);
+    auto* fi = get_func_interp(f);
+    if (!fi)
+        return expr_ref(e, m);
+    return fi->get_array_interp(f);
 }
 
 

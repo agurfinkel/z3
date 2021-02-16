@@ -55,10 +55,10 @@ class sym_expr {
 public:
     ~sym_expr() { if (m_expr) m_expr->dec_ref(); }
     expr_ref accept(expr* e);
-    static sym_expr* mk_char(expr_ref& t) { return alloc(sym_expr, t_char, t, t, t.get_manager().get_sort(t), nullptr); }
+    static sym_expr* mk_char(expr_ref& t) { return alloc(sym_expr, t_char, t, t, t->get_sort(), nullptr); }
     static sym_expr* mk_char(ast_manager& m, expr* t) { expr_ref tr(t, m); return mk_char(tr); }
     static sym_expr* mk_pred(expr_ref& t, sort* s) { return alloc(sym_expr, t_pred, t, t, s, nullptr); }
-    static sym_expr* mk_range(expr_ref& lo, expr_ref& hi) { return alloc(sym_expr, t_range, lo, hi, lo.get_manager().get_sort(hi), nullptr); }
+    static sym_expr* mk_range(expr_ref& lo, expr_ref& hi) { return alloc(sym_expr, t_range, lo, hi, hi->get_sort(), nullptr); }
     static sym_expr* mk_not(ast_manager& m, sym_expr* e) { expr_ref f(m); e->inc_ref(); return alloc(sym_expr, t_not, f, f, e->get_sort(), e); }
     void inc_ref() { ++m_ref;  }
     void dec_ref() { --m_ref; if (m_ref == 0) dealloc(this); }
@@ -193,6 +193,8 @@ class seq_rewriter {
     expr_ref mk_der_cond(expr* cond, expr* ele, sort* seq_sort);
     expr_ref mk_der_antimorov_union(expr* r1, expr* r2);
     bool ite_bdds_compatabile(expr* a, expr* b);
+    /* if r has the form deriv(en..deriv(e1,to_re(s))..) returns 's = [e1..en]' else returns '() in r'*/
+    expr_ref is_nullable_symbolic_regex(expr* r, sort* seq_sort);
     #ifdef Z3DEBUG
     bool check_deriv_normal_form(expr* r, int level = 3);
     #endif
@@ -247,6 +249,7 @@ class seq_rewriter {
     br_status mk_re_derivative(expr* ele, expr* r, expr_ref& result);
 
     br_status lift_ites_throttled(func_decl* f, unsigned n, expr* const* args, expr_ref& result);
+    bool lift_ites_filter(func_decl* f, expr* ite);
 
     br_status reduce_re_eq(expr* a, expr* b, expr_ref& result);
     br_status reduce_re_is_empty(expr* r, expr_ref& result);
@@ -255,6 +258,10 @@ class seq_rewriter {
     bool non_overlap(zstring const& p1, zstring const& p2) const;
     bool rewrite_contains_pattern(expr* a, expr* b, expr_ref& result);
     bool has_fixed_length_constraint(expr* a, unsigned& len);
+    /* r = ite(c1,ite(c2,to_re(s),to_re(t)),to_re(u)) ==> returns true, result = ite(c1,ite(c2,s,t),u)*/
+    bool lift_str_from_to_re_ite(expr * r, expr_ref & result);
+    /* same as lift_to_re_from_ite and also: r = to_re(u) ==> returns true, result = u */
+    bool lift_str_from_to_re(expr * r, expr_ref & result);
 
     br_status mk_bool_app_helper(bool is_and, unsigned n, expr* const* args, expr_ref& result);
     br_status mk_eq_helper(expr* a, expr* b, expr_ref& result);
@@ -288,8 +295,8 @@ class seq_rewriter {
     void remove_empty_and_concats(expr_ref_vector& es);
     void remove_leading(unsigned n, expr_ref_vector& es);
 
-    class seq_util::re& re() { return u().re; }
-    class seq_util::re const& re() const { return u().re; }
+    class seq_util::rex& re() { return u().re; }
+    class seq_util::rex const& re() const { return u().re; }
     class seq_util::str& str() { return u().str; }
     class seq_util::str const& str() const { return u().str; }
 

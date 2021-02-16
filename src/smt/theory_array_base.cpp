@@ -34,14 +34,14 @@ namespace smt {
     }
 
     void theory_array_base::add_weak_var(theory_var v) {
-        ctx.push_trail(push_back_vector<context, svector<theory_var>>(m_array_weak_trail));
+        ctx.push_trail(push_back_vector<svector<theory_var>>(m_array_weak_trail));
         m_array_weak_trail.push_back(v);
     }
 
     void theory_array_base::found_unsupported_op(expr * n) {
         if (!ctx.get_fparams().m_array_fake_support && !m_found_unsupported_op) {
             TRACE("array", tout << mk_ll_pp(n, m) << "\n";);            
-            ctx.push_trail(value_trail<context, bool>(m_found_unsupported_op));
+            ctx.push_trail(value_trail<bool>(m_found_unsupported_op));
             m_found_unsupported_op = true;
         }
     }
@@ -59,7 +59,7 @@ namespace smt {
     }
 
     app * theory_array_base::mk_default(expr * a) {
-        sort * s = m.get_sort(a);
+        sort * s = a->get_sort();
         unsigned num_params = get_dimension(s);
         parameter const* params = s->get_info()->get_parameters();
         return m.mk_app(get_family_id(), OP_ARRAY_DEFAULT, num_params, params, 1, & a);
@@ -317,7 +317,7 @@ namespace smt {
         app * e2        = n2->get_owner();
 
         func_decl_ref_vector * funcs = nullptr;
-        sort *                     s = m.get_sort(e1);
+        sort *                     s = e1->get_sort();
 
         VERIFY(m_sort2skolem.find(s, funcs));
 
@@ -353,7 +353,7 @@ namespace smt {
     void theory_array_base::assert_congruent_core(enode * n1, enode * n2) {
         app * e1        = n1->get_owner();
         app * e2        = n2->get_owner();
-        sort* s         = m.get_sort(e1);
+        sort* s         = e1->get_sort();
         unsigned dimension = get_array_arity(s);
         literal n1_eq_n2 = mk_eq(e1, e2, true);
         ctx.mark_as_relevant(n1_eq_n2);
@@ -430,7 +430,7 @@ namespace smt {
             m_extensionality_todo.reset();
             m_congruent_todo.reset();
             if (!ctx.get_fparams().m_array_weak && has_propagate_up_trail()) {
-                ctx.push_trail(value_trail<context, unsigned>(m_array_weak_head));
+                ctx.push_trail(value_trail<unsigned>(m_array_weak_head));
                 for (; m_array_weak_head < m_array_weak_trail.size(); ++m_array_weak_head) {
                     set_prop_upward(m_array_weak_trail[m_array_weak_head]);
                 }                
@@ -495,10 +495,10 @@ namespace smt {
             if (ctx.is_relevant(n) && ctx.is_shared(n)) {
                 enode * r = n->get_root();
                 if (!r->is_marked() && is_array_sort(r)) {
-                    TRACE("array_shared", tout << "new shared var: #" << r->get_owner_id() << "\n";);
+                    TRACE("array_shared", tout << "new shared var: #" << r->get_expr_id() << "\n";);
                     r->set_mark();
                     to_unmark.push_back(r);
-                    theory_var r_th_var = r->get_th_var(get_id());
+                    theory_var r_th_var = r->get_var(get_id());
                     SASSERT(r_th_var != null_theory_var);
                     result.push_back(r_th_var);
                 }
@@ -564,13 +564,13 @@ namespace smt {
             TRACE("array_bug", tout << "mk_interface_eqs: processing: v" << *it1 << "\n";);
             theory_var  v1 = *it1;
             enode *     n1 = get_enode(v1);
-            sort *      s1 = m.get_sort(n1->get_owner());
+            sort *      s1 = n1->get_owner()->get_sort();
             sbuffer<theory_var>::iterator it2 = it1;
             ++it2;
             for (; it2 != end1; ++it2) {
                 theory_var v2 = *it2;
                 enode *    n2 = get_enode(v2);
-                sort *     s2 = m.get_sort(n2->get_owner());
+                sort *     s2 = n2->get_owner()->get_sort();
                 if (s1 == s2 && !ctx.is_diseq(n1, n2)) {
                     app * eq  = mk_eq_atom(n1->get_owner(), n2->get_owner());
                     if (!ctx.b_internalized(eq) || !ctx.is_relevant(eq)) {
@@ -983,7 +983,7 @@ namespace smt {
         SASSERT(ctx.is_relevant(n));
         theory_var v       = n->get_th_var(get_id());
         SASSERT(v != null_theory_var);
-        sort * s           = m.get_sort(n->get_owner());
+        sort * s           = n->get_owner()->get_sort();
         enode * else_val_n = get_default(v);
         array_value_proc * result = nullptr;
 

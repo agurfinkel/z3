@@ -100,11 +100,9 @@ namespace sat {
 
     void parallel::init_solvers(solver& s, unsigned num_extra_solvers) {
         unsigned num_threads = num_extra_solvers + 1;
-        m_solvers.resize(num_extra_solvers);
+        m_solvers.init(num_extra_solvers);
+        m_limits.init(num_extra_solvers);
         symbol saved_phase = s.m_params.get_sym("phase", symbol("caching"));
-        for (unsigned i = 0; i < num_extra_solvers; ++i) {        
-            m_limits.push_back(reslimit());
-        }
         
         for (unsigned i = 0; i < num_extra_solvers; ++i) {
             s.m_params.set_uint("random_seed", s.m_rand());
@@ -194,7 +192,7 @@ namespace sat {
             IF_VERBOSE(3, verbose_stream() << s.m_par_id << ": retrieve " << m_lits << "\n";);
             SASSERT(n >= 2);
             if (usable_clause) {
-                s.mk_clause_core(m_lits.size(), m_lits.c_ptr(), true);
+                s.mk_clause_core(m_lits.size(), m_lits.c_ptr(), sat::status::redundant());
             }
         }        
     }
