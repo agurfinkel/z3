@@ -3247,7 +3247,7 @@ bool context::check_reachability ()
         SASSERT (m_pob_queue.top ());
         // Strange that k is increased even when we do not make use of it.
         if (m_stats.m_max_depth >= m_recfun_unroll_upd_lvl + K_UPDT_DELTA) {
-            // m_max_recfun_unroll++;
+            m_max_recfun_unroll++;
             m_recfun_unroll_upd_lvl = m_stats.m_max_depth;
             TRACE("spacer", tout << "Increasing value of k \n";);
         }
