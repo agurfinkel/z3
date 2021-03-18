@@ -71,7 +71,7 @@ pob::pob(pob *parent, pred_transformer &pt, unsigned level, unsigned depth,
       m_conj_pattern(m_pt.get_ast_manager()), m_local_gen(true),
       m_shd_concr(false), m_concr_pat(m_pt.get_ast_manager()),
       m_subsume_pob(m_pt.get_ast_manager()), m_subsume_bindings(m_pt.get_ast_manager()), m_is_subsume_pob(false),
-      m_expand_bnd(false), m_gas(0) {
+      m_expand_bnd(false), m_gas(20) {
     if (add_to_parent && m_parent) {
         m_parent->add_child(*this);
     }
@@ -328,6 +328,7 @@ pob *derivation::create_next_child(model &mdl) {
         exist_skolemize(post.get(), vars, post);
     }
 
+
     get_manager ().formula_o2n (post.get (), post,
                                 m_premises [m_active].get_oidx (),
                                 vars.empty());
@@ -339,6 +340,7 @@ pob *derivation::create_next_child(model &mdl) {
     pob *n = m_premises[m_active].pt().mk_pob(&m_parent,
                                               prev_level (m_parent.level ()),
                                               m_parent.depth (), post, vars);
+
     IF_VERBOSE (1, verbose_stream ()
                 << "\n\tcreate_child: " << n->pt ().head ()->get_name ()
                 << " (" << n->level () << ", " << n->depth () << ") "
@@ -3603,7 +3605,31 @@ lbool context::expand_pob(pob& n, pob_ref_buffer &out)
     }
     model = nullptr;
     predecessor_eh();
-
+    if (n.get_gas() > 0) {
+        unsigned num_removed = 0;
+        expr_ref_vector new_pob(m), o_pob(m);
+        flatten_and(n.post(), o_pob);
+        expr_ref lit(m);
+        for (unsigned i = 0; i < o_pob.size(); i++) {
+            lit = o_pob.get(i);
+            if (contains_datatype(lit)) continue;
+            new_pob.push_back(lit);
+            num_removed++;
+        }
+        pob *f = n.pt().find_pob(n.parent(), mk_and(new_pob));
+        // skip if new pob is already in the queue
+        if (!f && num_removed > 0 && new_pob.size() > 0){
+            pob *tmppob = n.pt().mk_pob(n.parent(), n.level(), n.depth(),
+                                        mk_and(new_pob), n.get_binding());
+            TRACE("spacer", tout << "removed all DT from a pob to get " << new_pob << "\n";);
+            n.set_gas(n.get_gas() - 1);
+            tmppob->set_gas(n.get_gas() - 1);
+            tmppob->set_conj();
+            out.push_back(&(*tmppob));
+            out.push_back(&n);
+            return l_undef;
+        }
+    }
     lbool res =
         n.pt().is_reachable(n, &cube, &model, uses_level, is_concrete, r,
                             reach_pred_used, num_reuse_reach, m_use_iuc);
