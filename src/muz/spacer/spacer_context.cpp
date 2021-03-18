@@ -817,7 +817,7 @@ bool pred_transformer::is_must_reachable(expr* state, model_ref* model)
     m_reach_solver->assert_expr (state);
     m_reach_solver->assert_expr (m.mk_not (m_reach_facts.back()->tag()));
     lbool res = m_reach_solver->check_sat (0, nullptr);
-    if (model) { m_reach_solver->get_model(*model); }
+    if (model && res == l_true) { m_reach_solver->get_model(*model); }
     m_reach_solver->pop (1);
     return (res == l_true);
 }
