@@ -759,7 +759,7 @@ void lemma_global_generalizer::core(lemma_ref &lemma) {
         tout << "Start global generalization of lemma : " << lemma->get_cube()
              << "\n Discovered cluster: " << pat << "\n and lemmas ";
         for (const lemma_info &lemma : lc.get_lemmas()) {
-            tout << "\n \t" << lemma.get_lemma()->get_cube();
+            tout << "\n \t" << lemma.get_lemma()->get_cube() << "\t" << lemma.get_lemma()->level();
         }
     });
 
