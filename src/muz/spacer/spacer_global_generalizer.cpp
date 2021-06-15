@@ -784,7 +784,7 @@ void lemma_global_generalizer::core(lemma_ref &lemma) {
         TRACE("global", tout << "Conjecture with pattern " << mk_pp(pat, m)
                              << " with gas " << cluster->get_gas() << "\n";);
         unsigned gas = cluster->get_pob_gas();
-        unsigned lvl = cluster->get_min_lvl();
+        unsigned lvl = cluster->get_min_lvl() == UINT_MAX ? pob->level() : cluster->get_min_lvl();
         if (do_conjecture(pob, lit, lvl, gas)) {
             // decrease the number of times this cluster is going to be used for
             // conjecturing
@@ -806,13 +806,15 @@ void lemma_global_generalizer::core(lemma_ref &lemma) {
     bindings.append(lemma->get_bindings());
 
     if (m_subsumer.subsume(lc, new_pob, bindings)) {
+        unsigned new_pob_lvl =
+            cluster->get_min_lvl() == UINT_MAX ? pob->level() : cluster->get_min_lvl();
         pob->set_subsume_pob(new_pob);
         pob->set_subsume_bindings(bindings);
-        pob->set_may_pob_lvl(cluster->get_min_lvl());
+        pob->set_may_pob_lvl(new_pob_lvl);
         pob->set_gas(cluster->get_pob_gas() + 1);
         pob->set_expand_bnd();
         TRACE("global", tout << "subsume pob " << mk_and(new_pob)
-                             << " at level " << cluster->get_min_lvl()
+                             << " at level " << new_pob_lvl
                              << " set on pob " << mk_pp(pob->post(), m)
                              << "\n";);
         // -- stop local generalization
