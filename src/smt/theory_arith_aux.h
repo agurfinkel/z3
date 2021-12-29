@@ -1089,19 +1089,19 @@ namespace smt {
         expr* obj = get_enode(v)->get_owner();
         expr_ref e(m);
         rational r = val.get_rational();
-        if (m_util.is_int(m.get_sort(obj))) {
+        if (m_util.is_int(obj->get_sort())) {
             if (r.is_int()) {
                 r += rational::one();
             }
             else {
                 r = ceil(r);
             }
-            e = m_util.mk_numeral(r, m.get_sort(obj));
+            e = m_util.mk_numeral(r, obj->get_sort());
             e = m_util.mk_ge(obj, e);
         }
         else {
             // obj is over the reals.
-            e = m_util.mk_numeral(r, m.get_sort(obj));
+            e = m_util.mk_numeral(r, obj->get_sort());
             
             if (val.get_infinitesimal().is_neg()) {
                 e = m_util.mk_ge(obj, e);
@@ -1151,8 +1151,8 @@ namespace smt {
      */
     template<typename Ext>
     void theory_arith<Ext>::enable_record_conflict(expr* bound) {
-        m_params.m_arith_bound_prop = BP_NONE;
-        SASSERT(propagation_mode() == BP_NONE); // bound propagation rules are not (yet) handled.
+        m_params.m_arith_bound_prop = bound_prop_mode::BP_NONE;
+        SASSERT(propagation_mode() == bound_prop_mode::BP_NONE); // bound propagation rules are not (yet) handled.
         if (bound) {
             m_bound_watch = ctx.get_bool_var(bound);
         }
@@ -2228,7 +2228,7 @@ namespace smt {
         }
 
         if (result)
-            ctx.push_trail(restore_size_trail<context, std::pair<theory_var, theory_var>, false>(m_assume_eq_candidates, old_sz));
+            ctx.push_trail(restore_size_trail<std::pair<theory_var, theory_var>, false>(m_assume_eq_candidates, old_sz));
         return delayed_assume_eqs();
     }
 
@@ -2237,7 +2237,7 @@ namespace smt {
         if (m_assume_eq_head == m_assume_eq_candidates.size())
             return false;
 
-        ctx.push_trail(value_trail<context, unsigned>(m_assume_eq_head));
+        ctx.push_trail(value_trail<unsigned>(m_assume_eq_head));
         while (m_assume_eq_head < m_assume_eq_candidates.size()) {
             std::pair<theory_var, theory_var> const & p = m_assume_eq_candidates[m_assume_eq_head];
             theory_var v1 = p.first;

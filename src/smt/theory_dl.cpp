@@ -80,7 +80,7 @@ namespace smt {
                 smt::context& ctx = m_th.get_context();
                 app* result = nullptr;
                 expr* n = m_node->get_owner();
-                sort* s = m_th.m().get_sort(n);
+                sort* s = n->get_sort();
                 func_decl* r, *v;
                 m_th.get_rep(s, r, v);
                 app_ref rep_of(m_th.m());
@@ -175,7 +175,7 @@ namespace smt {
         
         void relevant_eh(app * n) override {
             if (u().is_finite_sort(n)) {
-                sort* s = m().get_sort(n);
+                sort* s = n->get_sort();
                 func_decl* r, *v;
                 get_rep(s, r, v);
                 
@@ -209,8 +209,8 @@ namespace smt {
                 m_vals.insert(s, v);
                 add_trail(r);
                 add_trail(v);
-                ctx.push_trail(insert_obj_map<context,sort,func_decl*>(m_reps, s));
-                ctx.push_trail(insert_obj_map<context,sort,func_decl*>(m_vals, s));
+                ctx.push_trail(insert_obj_map<sort,func_decl*>(m_reps, s));
+                ctx.push_trail(insert_obj_map<sort,func_decl*>(m_vals, s));
             }
         }
 
@@ -247,7 +247,7 @@ namespace smt {
         }
 
         void mk_lt(app* x, app* y) {
-            sort* s = m().get_sort(x);
+            sort* s = x->get_sort();
             func_decl* r, *v;
             get_rep(s, r, v);
             app_ref lt(m()), le(m());
@@ -283,7 +283,7 @@ namespace smt {
 
         void add_trail(ast* a) {
             m_trail.push_back(a);
-            ctx.push_trail(push_back_vector<context,ast_ref_vector>(m_trail));
+            ctx.push_trail(push_back_vector<ast_ref_vector>(m_trail));
         }
                 
     };

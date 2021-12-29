@@ -60,6 +60,8 @@ namespace sat {
             m_phase = PS_SAT_CACHING;
         else if (s == symbol("random"))
             m_phase = PS_RANDOM;
+        else if (s == symbol("frozen"))
+            m_phase = PS_FROZEN;
         else
             throw sat_param_exception("invalid phase selection strategy: always_false, always_true, basic_caching, caching, random");
 
@@ -192,7 +194,7 @@ namespace sat {
         m_drat_check_unsat  = p.drat_check_unsat();
         m_drat_check_sat  = p.drat_check_sat();
         m_drat_file       = p.drat_file();
-        m_drat            = (m_drat_check_unsat || m_drat_file != symbol("") || m_drat_check_sat) && p.threads() == 1;
+        m_drat            = (m_drat_check_unsat || m_drat_file.is_non_empty_string() || m_drat_check_sat) && p.threads() == 1;
         m_drat_binary     = p.drat_binary();
         m_drat_activity   = p.drat_activity();
         m_dyn_sub_res     = p.dyn_sub_res();
@@ -248,8 +250,10 @@ namespace sat {
         sat_simplifier_params sp(_p);
         m_elim_vars = sp.elim_vars();
 
+#if 0
         if (m_drat && (m_xor_solver || m_card_solver)) 
             throw sat_param_exception("DRAT checking only works for pure CNF");
+#endif
     }
 
     void config::collect_param_descrs(param_descrs & r) {

@@ -71,32 +71,31 @@ namespace smt {
 
         proof * mk_proof(conflict_resolution & cr) override {
             ast_manager & m   = cr.get_manager();
-            context & ctx     = cr.get_context();
             unsigned num_args = m_app1->get_num_args();
-            ptr_buffer<proof> prs;
-            ptr_buffer<expr>  lits;
+            proof_ref_vector prs(m);
+            expr_ref_vector lits(m);
             for (unsigned i = 0; i < num_args; i++) {
-                expr * arg1   = m_app1->get_arg(i);
-                expr * arg2   = m_app2->get_arg(i);
+                expr * arg1 = m_app1->get_arg(i);
+                expr * arg2 = m_app2->get_arg(i);
                 if (arg1 != arg2) {
-                    app * eq  = ctx.mk_eq_atom(arg1, arg2);
-                    app * neq = m.mk_not(eq);
-                    if (std::find(lits.begin(), lits.end(), neq) == lits.end()) {
+                    app * eq  = m.mk_eq(arg1, arg2);
+                    app_ref neq(m.mk_not(eq), m);
+                    if (std::find(lits.begin(), lits.end(), neq.get()) == lits.end()) {
                         lits.push_back(neq);
                         prs.push_back(mk_hypothesis(m, eq, false, arg1, arg2));
                     }
                 }
             }
-            proof * antecedents[2];
-            antecedents[0]   = m.mk_congruence(m_app1, m_app2, prs.size(), prs.c_ptr());
-            app * eq         = ctx.mk_eq_atom(m_app1, m_app2);
-            antecedents[1]   = mk_hypothesis(m, eq, true, m_app1, m_app2);
-            proof * false_pr = m.mk_unit_resolution(2, antecedents);
+            app_ref eq(m.mk_eq(m_app1, m_app2), m);
+            proof_ref a1(m.mk_congruence(m_app1, m_app2, prs.size(), prs.c_ptr()), m);
+            proof_ref a2(mk_hypothesis(m, eq, true, m_app1, m_app2), m);
+            proof * antecedents[2] = { a1.get(), a2.get() };
+            proof_ref false_pr(m.mk_unit_resolution(2, antecedents), m);
             lits.push_back(eq);
             SASSERT(lits.size() >= 2);
-            app * lemma      = m.mk_or(lits.size(), lits.c_ptr());
-            TRACE("dyn_ack", tout << mk_pp(lemma, m) << "\n";);
-            TRACE("dyn_ack", tout << mk_pp(false_pr, m) << "\n";);
+            app_ref lemma(m.mk_or(lits), m);
+            TRACE("dyn_ack", tout << lemma << "\n";);
+            TRACE("dyn_ack", tout << false_pr << "\n";);
             return m.mk_lemma(false_pr, lemma);
         }
 
@@ -375,7 +374,7 @@ namespace smt {
     }
 
     void dyn_ack_manager::propagate_eh() {
-        if (m_params.m_dack == DACK_DISABLED)
+        if (m_params.m_dack == dyn_ack_strategy::DACK_DISABLED)
             return;
         m_num_propagations_since_last_gc++;
         if (m_num_propagations_since_last_gc > m_params.m_dack_gc) {
@@ -398,7 +397,7 @@ namespace smt {
     }
 
     literal dyn_ack_manager::mk_eq(expr * n1, expr * n2) {
-		app_ref eq(m_context.mk_eq_atom(n1, n2), m);
+		app_ref eq(m.mk_eq(n1, n2), m);
         m_context.internalize(eq, true);
         literal l = m_context.get_literal(eq);
         TRACE("dyn_ack", tout << "eq:\n" << mk_pp(eq, m) << "\nliteral: "; 
@@ -407,7 +406,7 @@ namespace smt {
     }
 
     void dyn_ack_manager::instantiate(app * n1, app * n2) {
-        SASSERT(m_params.m_dack != DACK_DISABLED);
+        SASSERT(m_params.m_dack != dyn_ack_strategy::DACK_DISABLED);
         SASSERT(n1->get_decl() == n2->get_decl());
         SASSERT(n1->get_num_args() == n2->get_num_args());
         SASSERT(n1 != n2);
@@ -461,7 +460,7 @@ namespace smt {
 
     void dyn_ack_manager::instantiate(app * n1, app * n2, app* r) {
         context& ctx = m_context;
-        SASSERT(m_params.m_dack != DACK_DISABLED);
+        SASSERT(m_params.m_dack != dyn_ack_strategy::DACK_DISABLED);
         SASSERT(n1 != n2 && n1 != r && n2 != r);
         ctx.m_stats.m_num_dyn_ack++;
         TRACE("dyn_ack_inst", tout << "dyn_ack: " << n1->get_id() << " " << n2->get_id() << " " << r->get_id() << "\n";);
@@ -485,9 +484,9 @@ namespace smt {
         justification * js = nullptr;
         if (m.proofs_enabled()) {
             js = alloc(dyn_ack_eq_justification, n1, n2, r, 
-                       to_app(ctx.bool_var2expr(eq1.var())), 
-                       to_app(ctx.bool_var2expr(eq2.var())),
-                       to_app(ctx.bool_var2expr(eq3.var())));
+                       m.mk_eq(n1, r),
+                       m.mk_eq(n2, r),
+                       m.mk_eq(n1, n2));
         }
         clause * cls = ctx.mk_clause(lits.size(), lits.c_ptr(), js, CLS_TH_LEMMA, del_eh);
         if (!cls) {

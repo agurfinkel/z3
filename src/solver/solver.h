@@ -25,6 +25,7 @@ Notes:
 class solver;
 class model_converter;
 
+
 class solver_factory {
 public:
     virtual ~solver_factory() {}
@@ -32,6 +33,8 @@ public:
 };
 
 solver_factory * mk_smt_strategic_solver_factory(symbol const & logic = symbol::null);
+
+solver* mk_smt2_solver(ast_manager& m, params_ref const& p);
 
 /**
    \brief Abstract interface for making solvers available in the Z3
@@ -107,6 +110,16 @@ public:
     void assert_expr(expr_ref_vector const& ts) { 
         for (expr* e : ts) assert_expr(e);
     }
+
+    virtual void set_phase(expr* e) = 0;
+    virtual void move_to_front(expr* e) = 0; 
+
+    class phase { public: virtual ~phase() {} };
+    
+    virtual phase* get_phase() = 0;
+
+    virtual void set_phase(phase* p) = 0;
+
 
     void assert_expr(ptr_vector<expr> const& ts) { 
         for (expr* e : ts) assert_expr(e);
@@ -226,23 +239,48 @@ public:
 
     virtual expr_ref_vector cube(expr_ref_vector& vars, unsigned backtrack_level) = 0;
 
-    /**
-       \brief retrieve fixed value assignment in current solver state, if it is implied.
-    */
-    virtual expr_ref get_implied_value(expr* e) = 0;
 
-    /**
-       \brief retrieve upper/lower bound for arithmetic term, if it is implied.
-    */
-    virtual expr_ref get_implied_lower_bound(expr* e) = 0;
+    class propagate_callback {
+    public:
+        virtual void propagate_cb(unsigned num_fixed, unsigned const* fixed_ids, unsigned num_eqs, unsigned const* eq_lhs, unsigned const* eq_rhs, expr* conseq) = 0;
+    };
+    class context_obj {
+    public:
+        virtual ~context_obj() {}
+    };
+    typedef std::function<void(void*, solver::propagate_callback*)> final_eh_t;
+    typedef std::function<void(void*, solver::propagate_callback*, unsigned, expr*)> fixed_eh_t;
+    typedef std::function<void(void*, solver::propagate_callback*, unsigned, unsigned)> eq_eh_t;
+    typedef std::function<void*(void*, ast_manager&, solver::context_obj*&)> fresh_eh_t;
+    typedef std::function<void(void*)>                 push_eh_t;
+    typedef std::function<void(void*,unsigned)>        pop_eh_t;
 
-    virtual expr_ref get_implied_upper_bound(expr* e) = 0;
-
-    virtual void register_user_propagator(
+    virtual void user_propagate_init(
         void* ctx, 
-        std::function<void(void*, unsigned, expr*)>& fixed_eh,
-        std::function<void(void*)>&                  push_eh,
-        std::function<void(void*, unsigned)>&        pop_eh) {
+        push_eh_t&                                   push_eh,
+        pop_eh_t&                                    pop_eh,
+        fresh_eh_t&                                  fresh_eh) {
+        throw default_exception("user-propagators are only supported on the SMT solver");
+    }
+
+
+    virtual void user_propagate_register_fixed(fixed_eh_t& fixed_eh) {
+        throw default_exception("user-propagators are only supported on the SMT solver");
+    }
+
+    virtual void user_propagate_register_final(final_eh_t& final_eh) {
+        throw default_exception("user-propagators are only supported on the SMT solver");
+    }
+
+    virtual void user_propagate_register_eq(eq_eh_t& eq_eh) {
+        throw default_exception("user-propagators are only supported on the SMT solver");
+    }
+
+    virtual void user_propagate_register_diseq(eq_eh_t& diseq_eh) {
+        throw default_exception("user-propagators are only supported on the SMT solver");
+    }
+
+    virtual unsigned user_propagate_register(expr* e) { 
         throw default_exception("user-propagators are only supported on the SMT solver");
     }
 

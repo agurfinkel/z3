@@ -203,6 +203,7 @@ namespace sat {
                             in_s[l2_idx] = false;
                             literal  l2 = to_literal(l2_idx);
                             bool_var v2 = l2.var();
+
                             if (roots[v2] == null_literal) {
                                 if (l2.sign()) {
                                     roots[v2] = ~r;
@@ -219,6 +220,7 @@ namespace sat {
                 frames.pop_back();
             }
         }
+
         for (unsigned i = 0; i < m_solver.num_vars(); ++i) {
             if (roots[i] == null_literal) {
                 roots[i] = literal(i, false);

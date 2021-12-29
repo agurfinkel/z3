@@ -173,7 +173,7 @@ namespace smt {
             app* s1 = get_enode(s)->get_owner();
             app* t1 = get_enode(t)->get_owner();
             s2 = a.mk_sub(t1, s1);
-            t2 = a.mk_numeral(k, m.get_sort(s2.get()));
+            t2 = a.mk_numeral(k, s2->get_sort());
             eq = m.mk_eq(s2.get(), t2.get());
             
             TRACE("utvpi", tout << v1 << " .. " << v2 << "\n" << eq << "\n";);
@@ -190,7 +190,7 @@ namespace smt {
 
     template<typename Ext>
     void theory_utvpi<Ext>::inc_conflicts() {
-        ctx.push_trail(value_trail<context, bool>(m_consistent));
+        ctx.push_trail(value_trail<bool>(m_consistent));
         m_consistent = false;
         m_stats.m_num_conflicts++;   
         if (m_params.m_arith_adaptive) {
@@ -238,7 +238,7 @@ namespace smt {
         auto str = msg.str();
         TRACE("utvpi", tout << str;);
         warning_msg("%s", str.c_str());
-        ctx.push_trail(value_trail<context, bool>(m_non_utvpi_exprs));
+        ctx.push_trail(value_trail<bool>(m_non_utvpi_exprs));
         m_non_utvpi_exprs = true;        
     }
 

@@ -54,6 +54,7 @@ namespace smt {
         m_qmanager(alloc(quantifier_manager, *this, p, _p)),
         m_model_generator(alloc(model_generator, m)),
         m_relevancy_propagator(mk_relevancy_propagator(*this)),
+        m_user_propagator(nullptr),
         m_random(p.m_random_seed),
         m_flushing(false),
         m_lemma_id(0),
@@ -65,19 +66,8 @@ namespace smt {
         m_e_internalized_stack(m),
         m_l_internalized_stack(m),
         m_final_check_idx(0),
-        m_is_auxiliary(false),
-        m_par(nullptr),
-        m_par_index(0),
         m_cg_table(m),
-        m_is_diseq_tmp(nullptr),
         m_units_to_reassert(m),
-        m_qhead(0),
-        m_simp_qhead(0),
-        m_simp_counter(0),
-        m_bvar_inc(1.0),
-        m_phase_cache_on(true),
-        m_phase_counter(0),
-        m_phase_default(false),
         m_conflict(null_b_justification),
         m_not_l(null_literal),
         m_conflict_resolution(mk_conflict_resolution(m, *this, m_dyn_ack_manager, p, m_assigned_literals, m_watches)),
@@ -85,16 +75,9 @@ namespace smt {
         m_dyn_ack_manager(*this, p),
         m_unknown("unknown"),
         m_unsat_core(m),
-#ifdef Z3DEBUG
-        m_trail_enabled(true),
-#endif
-        m_scope_lvl(0),
-        m_base_lvl(0),
-        m_search_lvl(0),
-        m_generation(0),
-        m_last_search_result(l_undef),
-        m_last_search_failure(UNKNOWN),
-        m_searching(false) {
+        m_mk_bool_var_trail(*this),
+        m_mk_enode_trail(*this),
+        m_mk_lambda_trail(*this) {
 
         SASSERT(m_scope_lvl == 0);
         SASSERT(m_base_lvl == 0);
@@ -182,12 +165,13 @@ namespace smt {
 
         dst_ctx.setup_context(dst_ctx.m_fparams.m_auto_config);
         dst_ctx.internalize_assertions();
+        
+        dst_ctx.copy_user_propagator(src_ctx);
 
         TRACE("smt_context",
               src_ctx.display(tout);
               dst_ctx.display(tout););
     }
-
 
     context::~context() {
         flush();
@@ -201,6 +185,19 @@ namespace smt {
             if (!new_th)
                 throw default_exception("theory cannot be copied");
             dst.register_plugin(new_th);
+        }
+    }
+
+    void context::copy_user_propagator(context& src_ctx) {
+        if (!src_ctx.m_user_propagator) 
+            return;
+        ast_translation tr(src_ctx.m, m, false);
+        auto* p = get_theory(m.mk_family_id("user_propagator"));
+        m_user_propagator = reinterpret_cast<user_propagator*>(p);
+        SASSERT(m_user_propagator);
+        for (unsigned i = 0; i < src_ctx.m_user_propagator->get_num_vars(); ++i) {
+            app* e = src_ctx.m_user_propagator->get_expr(i);
+            m_user_propagator->add_expr(tr(e));
         }
     }
 
@@ -244,7 +241,7 @@ namespace smt {
        See comments in theory::mk_eq_atom
     */
     app * context::mk_eq_atom(expr * lhs, expr * rhs) {
-        family_id fid = m.get_sort(lhs)->get_family_id();
+        family_id fid = lhs->get_sort()->get_family_id();
         theory * th   = get_theory(fid);
         if (th)
             return th->mk_eq_atom(lhs, rhs);
@@ -432,18 +429,20 @@ namespace smt {
         m_th_diseq_propagation_queue.push_back(new_th_eq(th, lhs, rhs));
     }
 
-    class add_eq_trail : public trail<context> {
+    class add_eq_trail : public trail {
+        context& ctx;
         enode * m_r1;
         enode * m_n1;
         unsigned m_r2_num_parents;
     public:
-        add_eq_trail(enode * r1, enode * n1, unsigned r2_num_parents):
+        add_eq_trail(context& ctx, enode * r1, enode * n1, unsigned r2_num_parents):
+            ctx(ctx),
             m_r1(r1),
             m_n1(n1),
             m_r2_num_parents(r2_num_parents) {
         }
 
-        void undo(context & ctx) override {
+        void undo() override {
             ctx.undo_add_eq(m_r1, m_n1, m_r2_num_parents);
         }
     };
@@ -459,7 +458,7 @@ namespace smt {
             TRACE("add_eq", tout << "assigning: #" << n1->get_owner_id() << " = #" << n2->get_owner_id() << "\n";);
             TRACE("add_eq_detail", tout << "assigning\n" << enode_pp(n1, *this) << "\n" << enode_pp(n2, *this) << "\n";
                   tout << "kind: " << js.get_kind() << "\n";);
-            SASSERT(m.get_sort(n1->get_owner()) == m.get_sort(n2->get_owner()));
+            SASSERT(n1->get_owner()->get_sort() == n2->get_owner()->get_sort());
 
             m_stats.m_num_add_eq++;
             enode * r1 = n1->get_root();
@@ -470,6 +469,7 @@ namespace smt {
                 TRACE("add_eq", tout << "redundant constraint.\n";);
                 return;
             }
+            IF_VERBOSE(20, verbose_stream() << "merge " << mk_bounded_pp(n1->get_owner(), m) << " " << mk_bounded_pp(n2->get_owner(), m) << "\n");
 
             if (r1->is_interpreted() && r2->is_interpreted()) {
                 TRACE("add_eq", tout << "interpreted roots conflict.\n";);
@@ -510,9 +510,10 @@ namespace smt {
                 mark_as_relevant(r1);
             }
 
-            push_trail(add_eq_trail(r1, n1, r2->get_num_parents()));
+            push_trail(add_eq_trail(*this, r1, n1, r2->get_num_parents()));
 
             m_qmanager->add_eq_eh(r1, r2);
+
 
             merge_theory_vars(n2, n1, js);
 
@@ -527,7 +528,6 @@ namespace smt {
             SASSERT(r1->trans_reaches(n1));
             // ---------------
             // r1 -> ..  -> n1 -> n2 -> ... -> r2
-
 
             remove_parents_from_cg_table(r1);
 
@@ -608,7 +608,10 @@ namespace smt {
     */
     void context::reinsert_parents_into_cg_table(enode * r1, enode * r2, enode * n1, enode * n2, eq_justification js) {
         enode_vector & r2_parents  = r2->m_parents;
-        for (enode * parent : enode::parents(r1)) {
+        enode_vector & r1_parents  = r1->m_parents;
+        unsigned num_r1_parents = r1_parents.size();
+        for (unsigned i = 0; i < num_r1_parents; ++i) {
+            enode* parent = r1_parents[i];
             if (!parent->is_marked())
                 continue;
             parent->unset_mark();
@@ -763,10 +766,10 @@ namespace smt {
 
         if (r2->m_th_var_list.get_next() == nullptr && r1->m_th_var_list.get_next() == nullptr) {
             // Common case: r2 and r1 have at most one theory var.
-            theory_id  t2 = r2->m_th_var_list.get_th_id();
-            theory_id  t1 = r1->m_th_var_list.get_th_id();
-            theory_var v2 = m_fparams.m_new_core2th_eq ? get_closest_var(n2, t2) : r2->m_th_var_list.get_th_var();
-            theory_var v1 = m_fparams.m_new_core2th_eq ? get_closest_var(n1, t1) : r1->m_th_var_list.get_th_var();
+            theory_id  t2 = r2->m_th_var_list.get_id();
+            theory_id  t1 = r1->m_th_var_list.get_id();
+            theory_var v2 = m_fparams.m_new_core2th_eq ? get_closest_var(n2, t2) : r2->m_th_var_list.get_var();
+            theory_var v1 = m_fparams.m_new_core2th_eq ? get_closest_var(n1, t1) : r1->m_th_var_list.get_var();
             TRACE("merge_theory_vars",
                   tout << "v2: " << v2 << " #" << r2->get_owner_id() << ", v1: " << v1 << " #" << r1->get_owner_id()
                   << ", t2: " << t2 << ", t1: " << t1 << "\n";);
@@ -787,8 +790,8 @@ namespace smt {
                 push_new_th_diseqs(r1, v2, get_theory(t2));
             }
             else if (v1 != null_theory_var && v2 == null_theory_var) {
-                r2->m_th_var_list.set_th_var(v1);
-                r2->m_th_var_list.set_th_id(t1);
+                r2->m_th_var_list.set_var(v1);
+                r2->m_th_var_list.set_id(t1);
                 TRACE("merge_theory_vars", tout << "push_new_th_diseqs v1: " << v1 << ", t1: " << t1 << "\n";);
                 push_new_th_diseqs(r2, v1, get_theory(t1));
             }
@@ -801,8 +804,8 @@ namespace smt {
 
             theory_var_list * l2 = r2->get_th_var_list();
             while (l2) {
-                theory_id  t2 = l2->get_th_id();
-                theory_var v2 = m_fparams.m_new_core2th_eq ? get_closest_var(n2, t2) : l2->get_th_var();
+                theory_id  t2 = l2->get_id();
+                theory_var v2 = m_fparams.m_new_core2th_eq ? get_closest_var(n2, t2) : l2->get_var();
                 SASSERT(v2 != null_theory_var);
                 SASSERT(t2 != null_theory_id);
                 theory_var v1 = m_fparams.m_new_core2th_eq ? get_closest_var(n1, t2) : r1->get_th_var(t2);
@@ -820,8 +823,8 @@ namespace smt {
 
             theory_var_list * l1 = r1->get_th_var_list();
             while (l1) {
-                theory_id  t1 = l1->get_th_id();
-                theory_var v1 = m_fparams.m_new_core2th_eq ? get_closest_var(n1, t1) : l1->get_th_var();
+                theory_id  t1 = l1->get_id();
+                theory_var v1 = m_fparams.m_new_core2th_eq ? get_closest_var(n1, t1) : l1->get_var();
                 SASSERT(v1 != null_theory_var);
                 SASSERT(t1 != null_theory_id);
                 theory_var v2 = r2->get_th_var(t1);
@@ -955,13 +958,13 @@ namespace smt {
         // restore theory vars
         if (r2->m_th_var_list.get_next() == nullptr) {
             // common case: r2 has at most one variable
-            theory_var v2 = r2->m_th_var_list.get_th_var();
+            theory_var v2 = r2->m_th_var_list.get_var();
             if (v2 != null_theory_var) {
-                theory_id  t2 = r2->m_th_var_list.get_th_id();
+                theory_id  t2 = r2->m_th_var_list.get_id();
                 if (get_theory(t2)->get_enode(v2)->get_root() != r2) {
                     SASSERT(get_theory(t2)->get_enode(v2)->get_root() == r1);
-                    r2->m_th_var_list.set_th_var(null_theory_var); //remove variable from r2
-                    r2->m_th_var_list.set_th_id(null_theory_id);
+                    r2->m_th_var_list.set_var(null_theory_var); //remove variable from r2
+                    r2->m_th_var_list.set_id(null_theory_id);
                 }
             }
         }
@@ -1001,8 +1004,8 @@ namespace smt {
         theory_var_list * new_l2  = nullptr;
         theory_var_list * l2      = r2->get_th_var_list();
         while (l2) {
-            theory_var v2 = l2->get_th_var();
-            theory_id t2  = l2->get_th_id();
+            theory_var v2 = l2->get_var();
+            theory_id t2  = l2->get_id();
 
             if (get_theory(t2)->get_enode(v2)->get_root() != r2) {
                 SASSERT(get_theory(t2)->get_enode(v2)->get_root() == r1);
@@ -1025,7 +1028,7 @@ namespace smt {
             new_l2->set_next(nullptr);
         }
         else {
-            r2->m_th_var_list.set_th_var(null_theory_var);
+            r2->m_th_var_list.set_var(null_theory_var);
             r2->m_th_var_list.set_next(nullptr);
         }
     }
@@ -1045,14 +1048,14 @@ namespace smt {
               );
 
         DEBUG_CODE(
-            push_trail(push_back_trail<context, enode_pair, false>(m_diseq_vector));
+            push_trail(push_back_trail<enode_pair, false>(m_diseq_vector));
             m_diseq_vector.push_back(enode_pair(n1, n2)););
 
         if (r1 == r2) {
             TRACE("add_diseq_inconsistent", tout << "add_diseq #" << n1->get_owner_id() << " #" << n2->get_owner_id() << " inconsistency, scope_lvl: " << m_scope_lvl << "\n";);
             //return false;
 
-            theory_id  t1 = r1->m_th_var_list.get_th_id();
+            theory_id  t1 = r1->m_th_var_list.get_id();
             if (t1 == null_theory_id) return false;
             return get_theory(t1)->use_diseqs();
         }
@@ -1060,15 +1063,15 @@ namespace smt {
         // Propagate disequalities to theories
         if (r1->m_th_var_list.get_next() == nullptr && r2->m_th_var_list.get_next() == nullptr) {
             // common case: r2 and r1 have at most one theory var.
-            theory_id  t1 = r1->m_th_var_list.get_th_id();
-            theory_var v1 = m_fparams.m_new_core2th_eq ? get_closest_var(n1, t1) : r1->m_th_var_list.get_th_var();
-            theory_var v2 = m_fparams.m_new_core2th_eq ? get_closest_var(n2, t1) : r2->m_th_var_list.get_th_var();
+            theory_id  t1 = r1->m_th_var_list.get_id();
+            theory_var v1 = m_fparams.m_new_core2th_eq ? get_closest_var(n1, t1) : r1->m_th_var_list.get_var();
+            theory_var v2 = m_fparams.m_new_core2th_eq ? get_closest_var(n2, t1) : r2->m_th_var_list.get_var();
             TRACE("add_diseq", tout << "one theory diseq\n";
                   tout << v1 << " != " << v2 << "\n";
-                  tout << "th1: " << t1 << " th2: " << r2->m_th_var_list.get_th_id() << "\n";
+                  tout << "th1: " << t1 << " th2: " << r2->m_th_var_list.get_id() << "\n";
                   );
             if (t1 != null_theory_id && v1 != null_theory_var && v2 != null_theory_var &&
-                t1 == r2->m_th_var_list.get_th_id()) {
+                t1 == r2->m_th_var_list.get_id()) {
                 if (get_theory(t1)->use_diseqs())
                     push_new_th_diseq(t1, v1, v2);
             }
@@ -1076,8 +1079,8 @@ namespace smt {
         else {
             theory_var_list * l1 = r1->get_th_var_list();
             while (l1) {
-                theory_id  t1 = l1->get_th_id();
-                theory_var v1 = m_fparams.m_new_core2th_eq ? get_closest_var(n1, t1) : l1->get_th_var();
+                theory_id  t1 = l1->get_id();
+                theory_var v1 = m_fparams.m_new_core2th_eq ? get_closest_var(n1, t1) : l1->get_var();
                 theory * th   = get_theory(t1);
                 TRACE("add_diseq", tout << m.get_family_name(t1) << "\n";);
                 if (th->use_diseqs()) {
@@ -1096,14 +1099,14 @@ namespace smt {
        context.
     */
     bool context::is_diseq(enode * n1, enode * n2) const {
-        SASSERT(m.get_sort(n1->get_owner()) == m.get_sort(n2->get_owner()));
+        SASSERT(n1->get_owner()->get_sort() == n2->get_owner()->get_sort());
         context * _this = const_cast<context*>(this);
         if (!m_is_diseq_tmp) {
             app * eq       = m.mk_eq(n1->get_owner(), n2->get_owner());
             m.inc_ref(eq);
             _this->m_is_diseq_tmp = enode::mk_dummy(m, m_app2enode, eq);
         }
-        else if (m.get_sort(m_is_diseq_tmp->get_owner()->get_arg(0)) != m.get_sort(n1->get_owner())) {
+        else if (m_is_diseq_tmp->get_owner()->get_arg(0)->get_sort() != n1->get_owner()->get_sort()) {
             m.dec_ref(m_is_diseq_tmp->get_owner());
             app * eq = m.mk_eq(n1->get_owner(), n2->get_owner());
             m.inc_ref(eq);
@@ -1261,9 +1264,9 @@ namespace smt {
                     SASSERT(e_internalized(arg));
                     enode * _arg = get_enode(arg);
                     CTRACE("eq_to_bug", args[i]->get_root() != _arg->get_root(),
-                           tout << "#" << args[i]->get_owner_id() << " #" << args[i]->get_root()->get_owner_id()
-                           << " #" << _arg->get_owner_id() << " #" << _arg->get_root()->get_owner_id() << "\n";
-                           tout << "#" << r->get_owner_id() << "\n";
+                           tout << "#" << args[i]->get_expr_id() << " #" << args[i]->get_root()->get_expr_id()
+                           << " #" << _arg->get_expr_id() << " #" << _arg->get_root()->get_expr_id() << "\n";
+                           tout << "#" << r->get_expr_id() << "\n";
                            display(tout););
                     SASSERT(args[i]->get_root() == _arg->get_root());
                 }
@@ -1302,17 +1305,20 @@ namespace smt {
             SASSERT(!inconsistent());
             literal  l = m_atom_propagation_queue[i];
             bool_var v = l.var();
-            bool_var_data & d = get_bdata(v);
             lbool val  = get_assignment(v);
-            CTRACE("propagate_atoms", v == 13, tout << "propagating atom, #" << bool_var2expr(v)->get_id() << ", is_enode(): " << d.is_enode()
-                  << " tag: " << (d.is_eq()?"eq":"") << (d.is_theory_atom()?"th":"") << (d.is_quantifier()?"q":"") << " " << l << "\n";);
+            TRACE("propagate_atoms", tout << "propagating atom, #" << bool_var2expr(v)->get_id() 
+                  << ", is_enode(): " << get_bdata(v).is_enode() << " tag: " 
+                  << (get_bdata(v).is_eq()?"eq":"") 
+                  << (get_bdata(v).is_theory_atom()?"th":"") 
+                  << (get_bdata(v).is_quantifier()?"q":"") << " " << l << "\n";);
             SASSERT(val != l_undef);
-            if (d.is_enode())
+            if (get_bdata(v).is_enode())
                 propagate_bool_var_enode(v);
             if (inconsistent())
                 return false;
+            bool_var_data & d = get_bdata(v);
             if (d.is_eq()) {
-                app * n   = to_app(m_bool_var2expr[v]);
+                app * n = to_app(m_bool_var2expr[v]);
                 SASSERT(m.is_eq(n));
                 expr * lhs = n->get_arg(0);
                 expr * rhs = n->get_arg(1);
@@ -1357,11 +1363,12 @@ namespace smt {
         return true;
     }
 
-    class set_var_theory_trail : public trail<context> {
+    class set_var_theory_trail : public trail {
+        context& ctx;
         bool_var m_var;
     public:
-        set_var_theory_trail(bool_var v):m_var(v) {}
-        void undo(context & ctx) override {
+        set_var_theory_trail(context& ctx, bool_var v): ctx(ctx), m_var(v) {}
+        void undo() override {
             bool_var_data & d = ctx.m_bdata[m_var];
             d.reset_notify_theory();
         }
@@ -1372,7 +1379,7 @@ namespace smt {
         SASSERT(tid > 0 && tid <= 255);
         SASSERT(get_intern_level(v) <= m_scope_lvl);
         if (m_scope_lvl > get_intern_level(v))
-            push_trail(set_var_theory_trail(v));
+            push_trail(set_var_theory_trail(*this, v));
         bool_var_data & d = m_bdata[v];
         d.set_notify_theory(tid);
     }
@@ -1390,6 +1397,7 @@ namespace smt {
         TRACE("propagate_bool_var_enode_bug", tout << "var: " << v << " #" << bool_var2expr(v)->get_id() << "\n";);
         SASSERT(v < static_cast<int>(m_b_internalized_stack.size()));
         enode * n  = bool_var2enode(v);
+
         CTRACE("mk_bool_var", !n, tout << "No enode for " << v << "\n";);
         bool sign  = val == l_false;
         if (n->merge_tf())
@@ -1568,7 +1576,7 @@ namespace smt {
                 enode *           e = get_enode(n);
                 theory_var_list * l = e->get_th_var_list();
                 while (l) {
-                    theory_id  th_id = l->get_th_id();
+                    theory_id  th_id = l->get_id();
                     theory *   th    = get_theory(th_id);
                     // I don't want to invoke relevant_eh twice for the same n.
                     if (th != propagated_th)
@@ -1619,7 +1627,7 @@ namespace smt {
             SASSERT(th);
             th->new_eq_eh(curr.m_lhs, curr.m_rhs);
             DEBUG_CODE(
-                push_trail(push_back_trail<context, new_th_eq, false>(m_propagated_th_eqs));
+                push_trail(push_back_trail<new_th_eq, false>(m_propagated_th_eqs));
                 m_propagated_th_eqs.push_back(curr););
         }
         m_th_eq_propagation_queue.reset();
@@ -1632,7 +1640,7 @@ namespace smt {
             SASSERT(th);
             th->new_diseq_eh(curr.m_lhs, curr.m_rhs);
             DEBUG_CODE(
-                push_trail(push_back_trail<context, new_th_eq, false>(m_propagated_th_diseqs));
+                push_trail(push_back_trail<new_th_eq, false>(m_propagated_th_diseqs));
                 m_propagated_th_diseqs.push_back(curr););
         }
         m_th_diseq_propagation_queue.reset();
@@ -1926,8 +1934,6 @@ namespace smt {
 
         for (theory* t : m_theory_set) 
             t->push_scope_eh();
-        if (m_user_propagator) 
-            m_user_propagator->push_scope_eh();
         CASSERT("context", check_invariant());
     }
 
@@ -2425,9 +2431,6 @@ namespace smt {
             for (theory* th : m_theory_set) 
                 th->pop_scope_eh(num_scopes);
 
-            if (m_user_propagator) 
-                m_user_propagator->pop_scope_eh(num_scopes);
-
             del_justifications(m_justifications, s.m_justifications_lim);
 
             m_asserted_formulas.pop_scope(num_scopes);
@@ -2652,7 +2655,6 @@ namespace smt {
         }
 
         TRACE("simplify_clauses_detail", tout << "before:\n"; display_clauses(tout, m_lemmas););
-        IF_VERBOSE(2, verbose_stream() << "(smt.simplifying-clause-set"; verbose_stream().flush(););
 
         SASSERT(check_clauses(m_lemmas));
         SASSERT(check_clauses(m_aux_clauses));
@@ -2685,8 +2687,9 @@ namespace smt {
             num_del_clauses += simplify_clauses(m_aux_clauses, s.m_aux_clauses_lim);
             num_del_clauses += simplify_clauses(m_lemmas, bs.m_lemmas_lim);
         }
+        m_stats.m_num_del_clauses += num_del_clauses;
+        m_stats.m_num_simplifications++;
         TRACE("simp_counter", tout << "simp_counter: " << m_simp_counter << " scope_lvl: " << m_scope_lvl << "\n";);
-        IF_VERBOSE(2, verbose_stream() << " :num-deleted-clauses " << num_del_clauses << ")" << std::endl;);
         TRACE("simplify_clauses_detail", tout << "after:\n"; display_clauses(tout, m_lemmas););
         SASSERT(check_clauses(m_lemmas) && check_clauses(m_aux_clauses));
     }
@@ -2878,19 +2881,21 @@ namespace smt {
         }
     }
 
-    void context::register_user_propagator(
-        void* ctx, 
-        std::function<void(void*, unsigned, expr*)>& fixed_eh,
-        std::function<void(void*)>&                  push_eh,
-        std::function<void(void*, unsigned)>&        pop_eh) {
+    void context::user_propagate_init(
+        void*                    ctx, 
+        solver::push_eh_t&       push_eh,
+        solver::pop_eh_t&        pop_eh,
+        solver::fresh_eh_t&      fresh_eh) {
+        setup_context(m_fparams.m_auto_config);
         m_user_propagator = alloc(user_propagator, *this);
-        m_user_propagator->add(ctx, fixed_eh, push_eh, pop_eh);
+        m_user_propagator->add(ctx, push_eh, pop_eh, fresh_eh);
         for (unsigned i = m_scopes.size(); i-- > 0; ) 
             m_user_propagator->push_scope_eh();
+        register_plugin(m_user_propagator);
     }
 
     bool context::watches_fixed(enode* n) const {
-        return m_user_propagator && n->get_th_var(m_user_propagator->get_family_id()) != null_theory_var;
+        return m_user_propagator && m_user_propagator->has_fixed() && n->get_th_var(m_user_propagator->get_family_id()) != null_theory_var;
     }
 
     void context::assign_fixed(enode* n, expr* val, unsigned sz, literal const* explain) {
@@ -2977,13 +2982,15 @@ namespace smt {
         assert_expr_core(e, pr);
     }
 
-    class case_split_insert_trail : public trail<context> {
+    class case_split_insert_trail : public trail {
+        context& ctx;
         literal l;
     public:
-        case_split_insert_trail(literal l):
+        case_split_insert_trail(context& ctx, literal l):
+            ctx(ctx),
             l(l) {
         }
-        void undo(context & ctx) override {
+        void undo() override {
             ctx.undo_th_case_split(l);
         }
     };
@@ -3009,11 +3016,11 @@ namespace smt {
                 literal l = lits[i];
                 SASSERT(!m_all_th_case_split_literals.contains(l.index()));
                 m_all_th_case_split_literals.insert(l.index());
-                push_trail(case_split_insert_trail(l));
+                push_trail(case_split_insert_trail(*this, l));
                 new_case_split.push_back(l);
             }
             m_th_case_split_sets.push_back(new_case_split);
-            push_trail(push_back_vector<context, vector<literal_vector> >(m_th_case_split_sets));
+            push_trail(push_back_vector<vector<literal_vector> >(m_th_case_split_sets));
             for (unsigned i = 0; i < num_lits; ++i) {
                 literal l = lits[i];
                 if (!m_literal2casesplitsets.contains(l.index())) {
@@ -3723,16 +3730,7 @@ namespace smt {
         inc_limits();
         if (status == l_true || !m_fparams.m_restart_adaptive || m_agility < m_fparams.m_restart_agility_threshold) {
             SASSERT(!inconsistent());
-            IF_VERBOSE(2, verbose_stream() << "(smt.restarting :propagations " << m_stats.m_num_propagations
-                       << " :decisions " << m_stats.m_num_decisions
-                       << " :conflicts " << m_stats.m_num_conflicts << " :restart " << m_restart_threshold;
-                       if (m_fparams.m_restart_strategy == RS_IN_OUT_GEOMETRIC) {
-                           verbose_stream() << " :restart-outer " << m_restart_outer_threshold;
-                       }
-                       if (m_fparams.m_restart_adaptive) {
-                           verbose_stream() << " :agility " << m_agility;
-                       }
-                       verbose_stream() << ")\n");
+            log_stats();
             // execute the restart
             m_stats.m_num_restarts++;
             m_num_restarts++;
@@ -3848,6 +3846,7 @@ namespace smt {
                 TRACE("final_check_result", tout << "fcs: " << fcs << " last_search_failure: " << m_last_search_failure << "\n";);
                 switch (fcs) {
                 case FC_DONE:
+                    log_stats();
                     return l_true;
                 case FC_CONTINUE:
                     break;
@@ -4336,17 +4335,18 @@ namespace smt {
     /**
        \brief Undo object for bool var m_true_first field update.
     */
-    class set_true_first_trail : public trail<context> {
+    class set_true_first_trail : public trail {
+        context& ctx;
         bool_var m_var;
     public:
-        set_true_first_trail(bool_var v):m_var(v) {}
-        void undo(context & ctx) override {
+        set_true_first_trail(context& ctx, bool_var v): ctx(ctx), m_var(v) {}
+        void undo() override {
             ctx.m_bdata[m_var].reset_true_first_flag();
         }
     };
 
     void context::set_true_first_flag(bool_var v) {
-        push_trail(set_true_first_trail(v));
+        push_trail(set_true_first_trail(*this, v));
         bool_var_data & d = m_bdata[v];
         d.set_true_first_flag();
     }
@@ -4376,7 +4376,7 @@ namespace smt {
                 bool_var_data & d = get_bdata(v);
                 d.set_eq_flag();
                 set_true_first_flag(v);
-                sort * s    = m.get_sort(to_app(eq)->get_arg(0));
+                sort * s    = to_app(eq)->get_arg(0)->get_sort();
                 theory * th = m_theories.get_plugin(s->get_family_id());
                 if (th)
                     th->internalize_eq_eh(to_app(eq), v);
@@ -4428,7 +4428,7 @@ namespace smt {
             // contains a parent application.
 
             theory_var_list * l = n->get_th_var_list();
-            theory_id th_id     = l->get_th_id();
+            theory_id th_id     = l->get_id();
 
             for (enode * parent : enode::parents(n)) {
                 app* p = parent->get_owner();
@@ -4467,7 +4467,7 @@ namespace smt {
             // the theories of (array int int) and (array (array int int) int).
             // Remark: The inconsistency is not going to be detected if they are
             // not marked as shared.
-            return get_theory(th_id)->is_shared(l->get_th_var());
+            return get_theory(th_id)->is_shared(l->get_var());
         }
         default:
             return true;
@@ -4475,7 +4475,7 @@ namespace smt {
     }
 
     bool context::get_value(enode * n, expr_ref & value) {
-        sort * s      = m.get_sort(n->get_owner());
+        sort * s      = n->get_owner()->get_sort();
         family_id fid = s->get_family_id();
         theory * th   = get_theory(fid);
         if (th == nullptr)
@@ -4607,47 +4607,6 @@ namespace smt {
             m_model->register_decl(f, fi);
         }
         TRACE("model", tout << *m_model << "\n";);
-    }
-
-    expr_ref context::get_implied_value(expr* e) {
-        pop_to_search_lvl();
-        if (m.is_bool(e)) {
-            if (b_internalized(e)) {
-                switch (get_assignment(get_bool_var(e))) {
-                case l_true: e = m.mk_true(); break;
-                case l_false: e = m.mk_false(); break;
-                default: break;
-                }
-            }
-            return expr_ref(e, m);
-        }
-
-        if (e_internalized(e)) {
-            enode* n = get_enode(e);
-            for (enode* r : *n) {
-                if (m.is_value(r->get_owner())) {
-                    return expr_ref(r->get_owner(), m);
-                }
-            }
-        }
-
-        arith_value av(m);
-        av.init(this);
-        return av.get_fixed(e);
-    }
-
-    expr_ref context::get_implied_lower_bound(expr* e) {
-        pop_to_search_lvl();
-        arith_value av(m);
-        av.init(this);
-        return av.get_lo(e);
-    }
-
-    expr_ref context::get_implied_upper_bound(expr* e) {
-        pop_to_search_lvl();
-        arith_value av(m);
-        av.init(this);
-        return av.get_up(e);
     }
 
 };

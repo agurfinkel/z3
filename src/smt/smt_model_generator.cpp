@@ -92,9 +92,9 @@ namespace smt {
     void model_generator::mk_value_procs(obj_map<enode, model_value_proc *> & root2proc, ptr_vector<enode> & roots, 
                                          ptr_vector<model_value_proc> & procs) {
         for (enode * r : m_context->enodes()) {
-            if (r == r->get_root() && m_context->is_relevant(r)) {
+            if (r == r->get_root() && (m_context->is_relevant(r) || m.is_value(r->get_expr()))) {
                 roots.push_back(r);
-                sort * s      = m.get_sort(r->get_owner());
+                sort * s      = r->get_owner()->get_sort();
                 model_value_proc * proc = nullptr;
                 if (m.is_bool(s)) {
                     CTRACE("model", m_context->get_assignment(r) == l_undef, 
@@ -105,6 +105,8 @@ namespace smt {
                     else
                         proc = alloc(expr_wrapper_proc, m.mk_false());
                 }
+                else if (m.is_value(r->get_expr()))
+                    proc = alloc(expr_wrapper_proc, r->get_expr());                    
                 else {
                     family_id fid = s->get_family_id();
                     theory * th   = m_context->get_theory(fid);
@@ -115,7 +117,7 @@ namespace smt {
                         }
                         else {
                             TRACE("model", tout << "creating fresh value for #" << r->get_owner_id() << "\n";);
-                            proc = alloc(fresh_value_proc, mk_extra_fresh_value(m.get_sort(r->get_owner())));
+                            proc = alloc(fresh_value_proc, mk_extra_fresh_value(r->get_owner()->get_sort()));
                         }
                     }
                     else {
@@ -134,7 +136,7 @@ namespace smt {
         SASSERT(r == r->get_root());
         expr * n = r->get_owner();
         if (!m.is_model_value(n)) {
-            sort * s = m.get_sort(r->get_owner());
+            sort * s = r->get_owner()->get_sort();
             n = m_model->get_fresh_value(s);
             CTRACE("model", n == 0, 
                    tout << mk_pp(r->get_owner(), m) << "\nsort:\n" << mk_pp(s, m) << "\n";
@@ -181,12 +183,12 @@ namespace smt {
                 return true;
             bool visited = true;
             for (enode * r : roots) {
-                if (m.get_sort(r->get_owner()) != s)
+                if (r->get_owner()->get_sort() != s)
                     continue;
                 SASSERT(r == r->get_root());
                 if (root2proc[r]->is_fresh()) 
                     continue; // r is associated with a fresh value...
-                TRACE("mg_top_sort", tout << "fresh!" << src.get_value()->get_idx() << " -> #" << r->get_owner_id() << " " << mk_pp(m.get_sort(r->get_owner()), m) << "\n";);
+                TRACE("mg_top_sort", tout << "fresh!" << src.get_value()->get_idx() << " -> #" << r->get_owner_id() << " " << mk_pp(r->get_owner()->get_sort(), m) << "\n";);
                 visit_child(source(r), colors, todo, visited);
                 TRACE("mg_top_sort", tout << "visited: " << visited << ", todo.size(): " << todo.size() << "\n";);
             }
@@ -195,7 +197,7 @@ namespace smt {
         }
         
         SASSERT(!src.is_fresh_value());
-
+        
         enode * n = src.get_enode();
         SASSERT(n == n->get_root());
         bool visited = true;
@@ -305,7 +307,7 @@ namespace smt {
                       enode * n = curr.get_enode();
                       SASSERT(n->get_root() == n);
                       tout << mk_pp(n->get_owner(), m) << "\n";
-                      sort * s = m.get_sort(n->get_owner());
+                      sort * s = n->get_owner()->get_sort();
                       tout << curr << " " << mk_pp(s, m);
                       tout << " is_fresh: " << root2proc[n]->is_fresh() << "\n";
                   }

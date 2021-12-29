@@ -72,6 +72,7 @@ IS_OSX=False
 IS_FREEBSD=False
 IS_NETBSD=False
 IS_OPENBSD=False
+IS_SUNOS=False
 IS_CYGWIN=False
 IS_CYGWIN_MINGW=False
 IS_MSYS2=False
@@ -153,6 +154,9 @@ def is_netbsd():
 
 def is_openbsd():
     return IS_OPENBSD
+
+def is_sunos():
+    return IS_SUNOS
 
 def is_osx():
     return IS_OSX
@@ -359,7 +363,7 @@ def check_java():
     oo = TempFile('output')
     eo = TempFile('errout')
     try:
-        subprocess.call([JAVAC, 'Hello.java', '-verbose'], stdout=oo.fname, stderr=eo.fname)
+        subprocess.call([JAVAC, 'Hello.java', '-verbose', '-source', '1.8', '-target', '1.8' ], stdout=oo.fname, stderr=eo.fname)
         oo.commit()
         eo.commit()
     except:
@@ -488,7 +492,10 @@ def find_ml_lib():
 
 def is64():
     global LINUX_X64
-    return LINUX_X64 and sys.maxsize >= 2**32
+    if is_sunos() and sys.version_info.major < 3: 
+        return LINUX_X64
+    else:
+        return LINUX_X64 and sys.maxsize >= 2**32
 
 def check_ar():
     if is_verbose():
@@ -598,6 +605,8 @@ elif os.name == 'posix':
         IS_NETBSD=True
     elif os.uname()[0] == 'OpenBSD':
         IS_OPENBSD=True
+    elif os.uname()[0] == 'SunOS':
+        IS_SUNOS=True
     elif os.uname()[0][:6] == 'CYGWIN':
         IS_CYGWIN=True
         if (CC != None and "mingw" in CC):
@@ -1768,6 +1777,8 @@ class JavaDLLComponent(Component):
                 t = t.replace('PLATFORM', 'netbsd')
             elif IS_OPENBSD:
                 t = t.replace('PLATFORM', 'openbsd')
+            elif IS_SUNOS:
+                t = t.replace('PLATFORM', 'SunOS')
             elif IS_CYGWIN:
                 t = t.replace('PLATFORM', 'cygwin')
             elif IS_MSYS2:
@@ -1792,9 +1803,9 @@ class JavaDLLComponent(Component):
             #if IS_WINDOWS:
             JAVAC = '"%s"' % JAVAC
             JAR = '"%s"' % JAR
-            t = ('\t%s %s.java -d %s\n' % (JAVAC, os.path.join(self.to_src_dir, 'enumerations', '*'), os.path.join('api', 'java', 'classes')))
+            t = ('\t%s -source 1.8 -target 1.8 %s.java -d %s\n' % (JAVAC, os.path.join(self.to_src_dir, 'enumerations', '*'), os.path.join('api', 'java', 'classes')))
             out.write(t)
-            t = ('\t%s -cp %s %s.java -d %s\n' % (JAVAC,
+            t = ('\t%s -source 1.8 -target 1.8 -cp %s %s.java -d %s\n' % (JAVAC,
                                                   os.path.join('api', 'java', 'classes'),
                                                   os.path.join(self.to_src_dir, '*'),
                                                   os.path.join('api', 'java', 'classes')))
@@ -2348,7 +2359,7 @@ def mk_config():
     if ONLY_MAKEFILES:
         return
     config = open(os.path.join(BUILD_DIR, 'config.mk'), 'w')
-    global CXX, CC, GMP, CPPFLAGS, CXXFLAGS, LDFLAGS, EXAMP_DEBUG_FLAG, FPMATH_FLAGS, LOG_SYNC, SINGLE_THREADED
+    global CXX, CC, GMP, GUARD_CF, STATIC_BIN, GIT_HASH, CPPFLAGS, CXXFLAGS, LDFLAGS, EXAMP_DEBUG_FLAG, FPMATH_FLAGS, LOG_SYNC, SINGLE_THREADED
     if IS_WINDOWS:
         config.write(
             'CC=cl\n'
@@ -2514,6 +2525,12 @@ def mk_config():
             OS_DEFINES     = '-D_OPENBSD_'
             SO_EXT         = '.so'
             SLIBFLAGS      = '-shared'
+        elif sysname  == 'SunOS':
+            CXXFLAGS       = '%s -D_SUNOS_' % CXXFLAGS
+            OS_DEFINES     = '-D_SUNOS_'
+            SO_EXT         = '.so'
+            SLIBFLAGS      = '-shared'
+            SLIBEXTRAFLAGS = '%s -mimpure-text' % SLIBEXTRAFLAGS
         elif sysname.startswith('CYGWIN'):
             CXXFLAGS       = '%s -D_CYGWIN' % CXXFLAGS
             OS_DEFINES     = '-D_CYGWIN'

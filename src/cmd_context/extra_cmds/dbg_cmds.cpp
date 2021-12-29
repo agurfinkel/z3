@@ -33,7 +33,7 @@ Notes:
 #include "util/gparams.h"
 #include "qe/qe_mbp.h"
 #include "qe/qe_mbi.h"
-#include "qe/qe_term_graph.h"
+#include "qe/mbp/mbp_term_graph.h"
 
 
 BINARY_SYM_CMD(get_quantifier_body_cmd,
@@ -293,7 +293,7 @@ public:
             throw cmd_exception("invalid command, mismatch between the number of quantified variables and the number of arguments.");
         unsigned i = num;
         while (i-- > 0) {
-            sort * s = ctx.m().get_sort(ts[i]);
+            sort * s = ts[i]->get_sort();
             if (s != m_q->get_decl_sort(i)) {
                 std::ostringstream buffer;
                 buffer << "invalid command, sort mismatch at position " << i;
@@ -369,7 +369,7 @@ public:
             }
             vars.push_back(to_app(v));
         }
-        qe::mbp mbp(m);
+        qe::mbproj mbp(m);
         expr_ref fml(m_fml, m);
         mbp.spacer(vars, *mdl.get(), fml);
         ctx.regular_stream() << fml << "\n";

@@ -26,11 +26,12 @@ Revision History:
 --*/
 #pragma once
 
-#include "ast/ast.h"
 #include "util/params.h"
-#include "model/model.h"
 #include "util/lbool.h"
 #include "util/statistics.h"
+#include "ast/ast.h"
+#include "model/model.h"
+#include "solver/solver.h"
 #include "smt/smt_failure.h"
 
 struct smt_params;
@@ -149,6 +150,11 @@ namespace smt {
         */
         lbool preferred_sat(expr_ref_vector const& asms, vector<expr_ref_vector>& cores);
 
+        void set_phase(expr * e) { NOT_IMPLEMENTED_YET(); }
+        solver::phase* get_phase() { NOT_IMPLEMENTED_YET();  return nullptr; }
+        void set_phase(solver::phase* p) { NOT_IMPLEMENTED_YET(); }
+        void move_to_front(expr* e) { NOT_IMPLEMENTED_YET(); }
+
         /**
            \brief Return the model associated with the last check command.
         */
@@ -223,16 +229,6 @@ namespace smt {
         */
         expr_ref_vector cubes(unsigned depth);
 
-        /**
-           \brief retrieve upper/lower bound for arithmetic term, if it is implied.
-           retrieve implied values if terms are fixed to a value.
-        */
-
-        expr_ref get_implied_value(expr* e);
-
-        expr_ref get_implied_lower_bound(expr* e);
-
-        expr_ref get_implied_upper_bound(expr* e);
 
         /**
            \brief retrieve depth of variables from decision stack.
@@ -285,13 +281,28 @@ namespace smt {
         static void collect_param_descrs(param_descrs & d);
 
         /**
-           \brief register a user-propagator "theory"
+           \brief initialize a user-propagator "theory"
         */
-        void register_user_propagator(
+        void user_propagate_init(
             void* ctx, 
-            std::function<void(void*, unsigned, expr*)>& fixed_eh,
-            std::function<void(void*)>&                  push_eh,
-            std::function<void(void*, unsigned)>&        pop_eh);
+            solver::push_eh_t&      push_eh,
+            solver::pop_eh_t&       pop_eh,
+            solver::fresh_eh_t&     fresh_eh);
+
+        void user_propagate_register_fixed(solver::fixed_eh_t& fixed_eh);
+
+        void user_propagate_register_final(solver::final_eh_t& final_eh);
+        
+        void user_propagate_register_eq(solver::eq_eh_t& eq_eh);
+        
+        void user_propagate_register_diseq(solver::eq_eh_t& diseq_eh);
+
+
+        /**
+           \brief register an expression to be tracked fro user propagation.
+        */
+        unsigned user_propagate_register(expr* e);
+        
 
         /**
            \brief Return a reference to smt::context.

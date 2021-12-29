@@ -107,7 +107,7 @@ namespace smt {
                     }
 
                     regex_terms_with_length_constraints.insert(str_in_re);
-                    m_trail_stack.push(insert_obj_trail<theory_str, expr>(regex_terms_with_length_constraints, str_in_re));
+                    m_trail_stack.push(insert_obj_trail<expr>(regex_terms_with_length_constraints, str_in_re));
                     regex_axiom_add = true;
                 }
             } // re not in regex_terms_with_length_constraints
@@ -179,7 +179,7 @@ namespace smt {
                             expr_ref rhs(ctx.mk_eq_atom(str, mk_string("")), m);
                             assert_implication(lhs, rhs);
                             regex_terms_with_path_constraints.insert(str_in_re);
-                            m_trail_stack.push(insert_obj_trail<theory_str, expr>(regex_terms_with_path_constraints, str_in_re));
+                            m_trail_stack.push(insert_obj_trail<expr>(regex_terms_with_path_constraints, str_in_re));
                         } else {
                             TRACE("str", tout << "zero-length solution not admitted by this automaton -- asserting conflict clause" << std::endl;);
                             expr_ref_vector lhs_terms(m);
@@ -611,7 +611,10 @@ namespace smt {
                       });
 
                 if (regex_get_counter(regex_length_attempt_count, aut.get_regex_term()) >= m_params.m_RegexAutomata_LengthAttemptThreshold) {
-                    unsigned intersectionDifficulty = estimate_automata_intersection_difficulty(aut_inter, aut.get_automaton());
+                    unsigned intersectionDifficulty = 0;
+                    if (aut_inter != nullptr) {
+                        intersectionDifficulty = estimate_automata_intersection_difficulty(aut_inter, aut.get_automaton());
+                    }
                     TRACE("str", tout << "intersection difficulty is " << intersectionDifficulty << std::endl;);
                     if (intersectionDifficulty <= m_params.m_RegexAutomata_IntersectionDifficultyThreshold
                             || regex_get_counter(regex_intersection_fail_count, aut.get_regex_term()) >= m_params.m_RegexAutomata_FailedIntersectionThreshold) {

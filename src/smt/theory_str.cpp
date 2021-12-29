@@ -89,8 +89,7 @@ namespace smt {
         m_library_aware_trail_stack(*this),
         m_find(*this),
         fixed_length_subterm_trail(m),
-        fixed_length_assumptions(m),
-        bitvector_character_constants(m)
+        fixed_length_assumptions(m)
     {
     }
 
@@ -100,10 +99,11 @@ namespace smt {
             dealloc(aut);
         }
         regex_automata.clear();
+        for (auto& kv: var_to_char_subterm_map) dealloc(kv.m_value);
+        for (auto& kv: uninterpreted_to_char_subterm_map) dealloc(kv.m_value);
     }
 
     void theory_str::init() {
-        initialize_charset();
         m_mk_aut.set_solver(alloc(seq_expr_solver, get_manager(), ctx.get_fparams()));
     }
 
@@ -164,11 +164,13 @@ namespace smt {
         fixed_length_subterm_trail.reset();
         fixed_length_assumptions.reset();
         fixed_length_used_len_terms.reset();
+
+        for (auto& kv: var_to_char_subterm_map) dealloc(kv.m_value);
         var_to_char_subterm_map.reset();
+        for (auto& kv: uninterpreted_to_char_subterm_map) dealloc(kv.m_value);
         uninterpreted_to_char_subterm_map.reset();
         fixed_length_lesson.reset();
         candidate_model.reset();
-        bitvector_character_constants.reset();
     }
 
     expr * theory_str::mk_string(zstring const& str) {
@@ -200,88 +202,16 @@ namespace smt {
         st.update("str refine negated function", m_stats.m_refine_nf);
     }
 
-    void theory_str::initialize_charset() {
-        bool defaultCharset = true;
-        if (defaultCharset) {
-            // valid C strings can't contain the null byte ('\0')
-            charSetSize = 255;
-            char_set.resize(256, 0);
-            int idx = 0;
-            // small letters
-            for (int i = 97; i < 123; i++) {
-                char_set[idx] = (char) i;
-                charSetLookupTable[char_set[idx]] = idx;
-                idx++;
-            }
-            // caps
-            for (int i = 65; i < 91; i++) {
-                char_set[idx] = (char) i;
-                charSetLookupTable[char_set[idx]] = idx;
-                idx++;
-            }
-            // numbers
-            for (int i = 48; i < 58; i++) {
-                char_set[idx] = (char) i;
-                charSetLookupTable[char_set[idx]] = idx;
-                idx++;
-            }
-            // printable marks - 1
-            for (int i = 32; i < 48; i++) {
-                char_set[idx] = (char) i;
-                charSetLookupTable[char_set[idx]] = idx;
-                idx++;
-            }
-            // printable marks - 2
-            for (int i = 58; i < 65; i++) {
-                char_set[idx] = (char) i;
-                charSetLookupTable[char_set[idx]] = idx;
-                idx++;
-            }
-            // printable marks - 3
-            for (int i = 91; i < 97; i++) {
-                char_set[idx] = (char) i;
-                charSetLookupTable[char_set[idx]] = idx;
-                idx++;
-            }
-            // printable marks - 4
-            for (int i = 123; i < 127; i++) {
-                char_set[idx] = (char) i;
-                charSetLookupTable[char_set[idx]] = idx;
-                idx++;
-            }
-            // non-printable - 1
-            for (int i = 1; i < 32; i++) {
-                char_set[idx] = (char) i;
-                charSetLookupTable[char_set[idx]] = idx;
-                idx++;
-            }
-            // non-printable - 2
-            for (int i = 127; i < 256; i++) {
-                char_set[idx] = (char) i;
-                charSetLookupTable[char_set[idx]] = idx;
-                idx++;
-            }
-        } else {
-            const char setset[] = { 'a', 'b', 'c' };
-            int fSize = sizeof(setset) / sizeof(char);
-            char_set.resize(fSize, 0);
-            charSetSize = fSize;
-            for (int i = 0; i < charSetSize; i++) {
-                char_set[i] = setset[i];
-                charSetLookupTable[setset[i]] = i;
-            }
-        }
-    }
-
     void theory_str::assert_axiom(expr * _e) {
         if (_e == nullptr) 
             return;
         if (opt_VerifyFinalCheckProgress) {
             finalCheckProgressIndicator = true;
         }
-
-        if (get_manager().is_true(_e)) return;
         ast_manager& m = get_manager();
+        SASSERT(!m.is_true(_e));
+
+        if (m.is_true(_e)) return;
         TRACE("str", tout << "asserting " << mk_ismt2_pp(_e, m) << std::endl;);
         expr_ref e(_e, m);
         //th_rewriter rw(m);
@@ -377,19 +307,17 @@ namespace smt {
     }
 
     void theory_str::refresh_theory_var(expr * e) {
-        ast_manager & m = get_manager();
         enode * en = ensure_enode(e);
         theory_var v = mk_var(en); (void)v;
         TRACE("str", tout << "refresh " << mk_pp(e, get_manager()) << ": v#" << v << std::endl;);
-        if (m.get_sort(e) == u.str.mk_string_sort()) {
+        if (e->get_sort() == u.str.mk_string_sort()) {
             m_basicstr_axiom_todo.push_back(en);
         }
     }
 
     theory_var theory_str::mk_var(enode* n) {
         TRACE("str", tout << "mk_var for " << mk_pp(n->get_owner(), get_manager()) << std::endl;);
-        ast_manager & m = get_manager();
-        if (!(m.get_sort(n->get_owner()) == u.str.mk_string_sort())) {
+        if (!(n->get_owner()->get_sort() == u.str.mk_string_sort())) {
             return null_theory_var;
         }
         if (is_attached_to_var(n)) {
@@ -1049,7 +977,7 @@ namespace smt {
         TRACE("str", tout << "set up basic string axioms on " << mk_pp(str->get_owner(), m) << std::endl;);
 
         {
-            sort * a_sort = m.get_sort(str->get_owner());
+            sort * a_sort = str->get_owner()->get_sort();
             sort * str_sort = u.str.mk_string_sort();
             if (a_sort != str_sort) {
                 TRACE("str", tout << "WARNING: not setting up string axioms on non-string term " << mk_pp(str->get_owner(), m) << std::endl;);
@@ -1974,7 +1902,7 @@ namespace smt {
                 // inconsistency check: value
                 if (!can_two_nodes_eq(eqc_nn1, eqc_nn2)) {
                     TRACE("str", tout << "inconsistency detected: " << mk_pp(eqc_nn1, m) << " cannot be equal to " << mk_pp(eqc_nn2, m) << std::endl;);
-                    expr_ref to_assert(mk_not(m, ctx.mk_eq_atom(eqc_nn1, eqc_nn2)), m);
+                    expr_ref to_assert(mk_not(m, m.mk_eq(eqc_nn1, eqc_nn2)), m);
                     assert_axiom(to_assert);
                     // this shouldn't use the integer theory at all, so we don't allow the option of quick-return
                     return false;
@@ -6613,10 +6541,9 @@ namespace smt {
     }
 
     void theory_str::handle_equality(expr * lhs, expr * rhs) {
-        ast_manager & m = get_manager();
         // both terms must be of sort String
-        sort * lhs_sort = m.get_sort(lhs);
-        sort * rhs_sort = m.get_sort(rhs);
+        sort * lhs_sort = lhs->get_sort();
+        sort * rhs_sort = rhs->get_sort();
         sort * str_sort = u.str.mk_string_sort();
 
         // Pick up new terms added during the search (e.g. recursive function expansion).
@@ -6841,7 +6768,7 @@ namespace smt {
 
     bool theory_str::is_var(expr * e) const {
         ast_manager & m = get_manager();
-        sort * ex_sort = m.get_sort(e);
+        sort * ex_sort = e->get_sort();
         sort * str_sort = u.str.mk_string_sort();
         // non-string-sort terms cannot be string variables
         if (ex_sort != str_sort) return false;
@@ -6863,12 +6790,19 @@ namespace smt {
         // expression throughout the lifetime of theory_str
         m_trail.push_back(ex);
 
-        sort * ex_sort = m.get_sort(ex);
+        sort * ex_sort = ex->get_sort();
         sort * str_sort = u.str.mk_string_sort();
         sort * bool_sort = m.mk_bool_sort();
 
         family_id m_arith_fid = m.mk_family_id("arith");
         sort * int_sort = m.mk_sort(m_arith_fid, INT_SORT);
+
+        // reject unhandled expressions
+        if (u.str.is_replace_all(ex) || u.str.is_replace_re(ex) || u.str.is_replace_re_all(ex) || u.str.is_from_code(ex)
+            || u.str.is_to_code(ex) || u.str.is_is_digit(ex)) {
+            TRACE("str", tout << "ERROR: Z3str3 has encountered an unsupported operator. Aborting." << std::endl;);
+            m.raise_exception("Z3str3 encountered an unsupported operator.");
+        }
 
         if (ex_sort == str_sort) {
             TRACE("str", tout << "setting up axioms for " << mk_ismt2_pp(ex, get_manager()) <<
@@ -6890,12 +6824,12 @@ namespace smt {
                     m_concat_eval_todo.push_back(n);
                 } else if (u.str.is_at(ap) || u.str.is_extract(ap) || u.str.is_replace(ap)) {
                     m_library_aware_axiom_todo.push_back(n);
-                    m_library_aware_trail_stack.push(push_back_trail<theory_str, enode*, false>(m_library_aware_axiom_todo));
+                    m_library_aware_trail_stack.push(push_back_trail<enode*, false>(m_library_aware_axiom_todo));
                 } else if (u.str.is_itos(ap)) {
                     TRACE("str", tout << "found string-integer conversion term: " << mk_pp(ex, get_manager()) << std::endl;);
                     string_int_conversion_terms.push_back(ap);
                     m_library_aware_axiom_todo.push_back(n);
-                    m_library_aware_trail_stack.push(push_back_trail<theory_str, enode*, false>(m_library_aware_axiom_todo));
+                    m_library_aware_trail_stack.push(push_back_trail<enode*, false>(m_library_aware_axiom_todo));
                 } else if (is_var(ex)) {
                     // if ex is a variable, add it to our list of variables
                     TRACE("str", tout << "tracking variable " << mk_ismt2_pp(ap, get_manager()) << std::endl;);
@@ -6921,7 +6855,7 @@ namespace smt {
                     app * ap = to_app(ex);
                     if (u.str.is_prefix(ap) || u.str.is_suffix(ap) || u.str.is_contains(ap) || u.str.is_in_re(ap)) {
                         m_library_aware_axiom_todo.push_back(n);
-                        m_library_aware_trail_stack.push(push_back_trail<theory_str, enode*, false>(m_library_aware_axiom_todo));
+                        m_library_aware_trail_stack.push(push_back_trail<enode*, false>(m_library_aware_axiom_todo));
                     }
                 }
             } else {
@@ -6941,12 +6875,12 @@ namespace smt {
                 app * ap = to_app(ex);
                 if (u.str.is_index(ap)) {
                     m_library_aware_axiom_todo.push_back(n);
-                    m_library_aware_trail_stack.push(push_back_trail<theory_str, enode*, false>(m_library_aware_axiom_todo));
+                    m_library_aware_trail_stack.push(push_back_trail<enode*, false>(m_library_aware_axiom_todo));
                 } else if (u.str.is_stoi(ap)) {
                     TRACE("str", tout << "found string-integer conversion term: " << mk_pp(ex, get_manager()) << std::endl;);
                     string_int_conversion_terms.push_back(ap);
                     m_library_aware_axiom_todo.push_back(n);
-                    m_library_aware_trail_stack.push(push_back_trail<theory_str, enode*, false>(m_library_aware_axiom_todo));
+                    m_library_aware_trail_stack.push(push_back_trail<enode*, false>(m_library_aware_axiom_todo));
                 }
             }
         } else {
@@ -7180,13 +7114,12 @@ namespace smt {
     }
 
     void theory_str::recursive_check_variable_scope(expr * ex) {
-        ast_manager & m = get_manager();
 
         if (is_app(ex)) {
             app * a = to_app(ex);
             if (a->get_num_args() == 0) {
                 // we only care about string variables
-                sort * s = m.get_sort(ex);
+                sort * s = ex->get_sort();
                 sort * string_sort = u.str.mk_string_sort();
                 if (s != string_sort) {
                     return;
@@ -7402,7 +7335,7 @@ namespace smt {
             if (m.is_eq(argAst)) {
                 TRACE("str", tout
                       << "eq ast " << mk_pp(argAst, m) << " is between args of sort "
-                      << m.get_sort(to_app(argAst)->get_arg(0))->get_name()
+                      << to_app(argAst)->get_arg(0)->get_sort()->get_name()
                       << std::endl;);
                 classify_ast_by_type(argAst, varMap, concatMap, unrollMap);
             }
@@ -8214,7 +8147,7 @@ namespace smt {
                         if (!string_int_axioms.contains(axiom)) {
                             string_int_axioms.insert(axiom);
                             assert_axiom(axiom);
-                            m_trail_stack.push(insert_obj_trail<theory_str, expr>(string_int_axioms, axiom));
+                            m_trail_stack.push(insert_obj_trail<expr>(string_int_axioms, axiom));
                             axiomAdd = true;
                         }
                     } else {
@@ -8248,7 +8181,7 @@ namespace smt {
                 if (!string_int_axioms.contains(axiom)) {
                     string_int_axioms.insert(axiom);
                     assert_axiom(axiom);
-                    m_trail_stack.push(insert_obj_trail<theory_str, expr>(string_int_axioms, axiom));
+                    m_trail_stack.push(insert_obj_trail<expr>(string_int_axioms, axiom));
                     axiomAdd = true;
                 }
             } else {
@@ -8258,7 +8191,7 @@ namespace smt {
                 if (!string_int_axioms.contains(axiom)) {
                     string_int_axioms.insert(axiom);
                     assert_axiom(axiom);
-                    m_trail_stack.push(insert_obj_trail<theory_str, expr>(string_int_axioms, axiom));
+                    m_trail_stack.push(insert_obj_trail<expr>(string_int_axioms, axiom));
                     axiomAdd = true;
                 }
             }
@@ -8302,7 +8235,7 @@ namespace smt {
                     if (!string_int_axioms.contains(axiom)) {
                         string_int_axioms.insert(axiom);
                         assert_axiom(axiom);
-                        m_trail_stack.push(insert_obj_trail<theory_str, expr>(string_int_axioms, axiom));
+                        m_trail_stack.push(insert_obj_trail<expr>(string_int_axioms, axiom));
                         axiomAdd = true;
                     }
                 } else {
@@ -8517,7 +8450,7 @@ namespace smt {
             for (std::set<enode*>::iterator it = eqc_roots.begin(); it != eqc_roots.end(); ++it) {
                 enode * e = *it;
                 app * a = e->get_owner();
-                if (!(m.get_sort(a) == u.str.mk_string_sort())) {
+                if (!(a->get_sort() == u.str.mk_string_sort())) {
                     TRACE("str", tout << "EQC root " << mk_pp(a, m) << " not a string term; skipping" << std::endl;);
                 } else {
                     TRACE("str", tout << "EQC root " << mk_pp(a, m) << " is a string term. Checking this EQC" << std::endl;);
@@ -9013,7 +8946,7 @@ namespace smt {
 
     model_value_proc * theory_str::mk_value(enode * n, model_generator & mg) {
         TRACE("str", tout << "mk_value for: " << mk_ismt2_pp(n->get_owner(), get_manager()) <<
-              " (sort " << mk_ismt2_pp(get_manager().get_sort(n->get_owner()), get_manager()) << ")" << std::endl;);
+              " (sort " << mk_ismt2_pp(n->get_owner()->get_sort(), get_manager()) << ")" << std::endl;);
         ast_manager & m = get_manager();
         app_ref owner(m);
         owner = n->get_owner();
@@ -9268,16 +9201,14 @@ namespace smt {
     }
 
     bool theory_str::flatten(expr* ex, expr_ref_vector & flat) {
-        ast_manager & m = get_manager();
-        // TRACE("str", tout << "ex " << mk_pp(ex, m)  << " target " << target << " length " << length << " sublen " << mk_pp(sublen, m) << " extra " << mk_pp(extra, m) << std::endl;);
 
-        sort * ex_sort = m.get_sort(ex);
+        sort * ex_sort = ex->get_sort();
         sort * str_sort = u.str.mk_string_sort();
 
         if (ex_sort == str_sort) {
             if (is_app(ex)) {
                 app * ap = to_app(ex);
-                if(u.str.is_concat(ap)){
+                if(u.str.is_concat(ap)) {
                     unsigned num_args = ap->get_num_args();
                     bool success = true;
                     for (unsigned i = 0; i < num_args; i++) {

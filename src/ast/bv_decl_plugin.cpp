@@ -131,12 +131,8 @@ void bv_decl_plugin::finalize() {
 
     DEC_REF(m_int2bv);
     DEC_REF(m_bv2int);
-    vector<ptr_vector<func_decl> >::iterator it  = m_bit2bool.begin();
-    vector<ptr_vector<func_decl> >::iterator end = m_bit2bool.end();
-    for (; it != end; ++it) {
-        ptr_vector<func_decl> & ds = *it;
+    for (auto& ds : m_bit2bool)
         DEC_REF(ds);
-    }
     DEC_REF(m_mkbv);
 }
 
@@ -354,7 +350,7 @@ inline bool bv_decl_plugin::get_bv_size(sort * s, int & result) {
 }
 
 inline bool bv_decl_plugin::get_bv_size(expr * t, int & result) {
-    return get_bv_size(m_manager->get_sort(t), result);
+    return get_bv_size(t->get_sort(), result);
 }
 
 bool bv_decl_plugin::get_concat_size(unsigned arity, sort * const * domain, int & result) {
@@ -608,7 +604,7 @@ func_decl * bv_decl_plugin::mk_func_decl(decl_kind k, unsigned num_parameters, p
             if (r->get_info()->is_associative()) {
                 sort * fs = r->get_domain(0);
                 for (unsigned i = 0; i < num_args; ++i) {
-                    if (m.get_sort(args[i]) != fs) {
+                    if (args[i]->get_sort() != fs) {
                         m_manager->raise_exception("declared sorts do not match supplied sorts");
                         return nullptr;
                     }
@@ -621,7 +617,7 @@ func_decl * bv_decl_plugin::mk_func_decl(decl_kind k, unsigned num_parameters, p
             }
         }
         for (unsigned i = 0; i < num_args; ++i) {
-            if (m.get_sort(args[i]) != r->get_domain(i)) {
+            if (args[i]->get_sort() != r->get_domain(i)) {
                 std::ostringstream buffer;
                 buffer << "Argument " << mk_pp(args[i], m) << " at position " << i << " does not match declaration " << mk_pp(r, m);
                 m.raise_exception(buffer.str());
@@ -815,6 +811,14 @@ bool bv_recognizers::is_zero(expr const * n) const {
     return decl->get_parameter(0).get_rational().is_zero();
 }
 
+bool bv_recognizers::is_one(expr const* n) const {
+    if (!is_app_of(n, get_fid(), OP_BV_NUM)) {
+        return false;
+    }
+    func_decl* decl = to_app(n)->get_decl();
+    return decl->get_parameter(0).get_rational().is_one();
+}
+
 bool bv_recognizers::is_extract(expr const* e, unsigned& low, unsigned& high, expr*& b) const {
     if (!is_extract(e)) return false;
     low = get_extract_low(e);
@@ -826,6 +830,14 @@ bool bv_recognizers::is_extract(expr const* e, unsigned& low, unsigned& high, ex
 bool bv_recognizers::is_bv2int(expr const* e, expr*& r) const {
     if (!is_bv2int(e)) return false;
     r = to_app(e)->get_arg(0);
+    return true;
+}
+
+bool bv_recognizers::is_bit2bool(expr* e, expr*& bv, unsigned& idx) const {
+    if (!is_bit2bool(e))
+        return false;
+    bv = to_app(e)->get_arg(0);
+    idx = to_app(e)->get_parameter(0).get_int();
     return true;
 }
 

@@ -337,6 +337,30 @@ def Z3_set_error_handler(ctx, hndlr, _elems=Elementaries(_lib.Z3_set_error_handl
   _elems.Check(ctx)
   return ceh
 
+def Z3_solver_propagate_init(ctx, s, user_ctx, push_eh, pop_eh, fresh_eh, _elems = Elementaries(_lib.Z3_solver_propagate_init)):
+    _elems.f(ctx, s, user_ctx, push_eh, pop_eh, fresh_eh)
+    _elems.Check(ctx)
+
+def Z3_solver_propagate_final(ctx, s, final_eh, _elems = Elementaries(_lib.Z3_solver_propagate_final)):
+    _elems.f(ctx, s, final_eh)
+    _elems.Check(ctx)
+
+def Z3_solver_propagate_fixed(ctx, s, fixed_eh, _elems = Elementaries(_lib.Z3_solver_propagate_fixed)):
+    _elems.f(ctx, s, fixed_eh)
+    _elems.Check(ctx)
+
+def Z3_solver_propagate_eq(ctx, s, eq_eh, _elems = Elementaries(_lib.Z3_solver_propagate_eq)):
+    _elems.f(ctx, s, eq_eh)
+    _elems.Check(ctx)
+
+def Z3_solver_propagate_diseq(ctx, s, diseq_eh, _elems = Elementaries(_lib.Z3_solver_propagate_diseq)):
+    _elems.f(ctx, s, diseq_eh)
+    _elems.Check(ctx)
+
+def Z3_optimize_register_model_eh(ctx, o, m, user_ctx, on_model_eh, _elems = Elementaries(_lib.Z3_optimize_register_model_eh)):
+    _elems.f(ctx, o, m, user_ctx, on_model_eh)
+    _elems.Check(ctx)
+
 """)
 
     for sig in _API2PY:
@@ -521,8 +545,13 @@ def mk_java(java_dir, package_name):
     java_native.write('  public static native void setInternalErrorHandler(long ctx);\n\n')
 
     java_native.write('  static {\n')
-    java_native.write('    try { System.loadLibrary("z3java"); }\n')
-    java_native.write('    catch (UnsatisfiedLinkError ex) { System.loadLibrary("libz3java"); }\n')
+    java_native.write('    if (null == System.getProperty("z3.skipLibraryLoad")) {\n')
+    java_native.write('      try {\n')
+    java_native.write('        System.loadLibrary("z3java");\n')
+    java_native.write('      } catch (UnsatisfiedLinkError ex) {\n')
+    java_native.write('        System.loadLibrary("libz3java");\n')
+    java_native.write('      }\n')
+    java_native.write('    }\n')
     java_native.write('  }\n')
 
     java_native.write('\n')
@@ -780,7 +809,7 @@ def mk_js(js_output_dir):
            ous.write("    {\n")
            ous.write("       \"name\": \"%s\",\n" % name)
            ous.write("       \"c_type\": \"%s\",\n" % Type2Str[result])
-           ous.write("       \"napi_type\": \"%s\",\n" % type2napi(result))                       
+           ous.write("       \"napi_type\": \"%s\",\n" % type2napi(result))
            ous.write("       \"arg_list\": [")
            first = True
            for p in params:
@@ -793,7 +822,7 @@ def mk_js(js_output_dir):
                k = t
                ous.write("            \"name\": \"%s\",\n" % "")                        # TBD
                ous.write("            \"c_type\": \"%s\",\n" % type2str(t))
-               ous.write("            \"napi_type\": \"%s\",\n" % type2napi(t))        
+               ous.write("            \"napi_type\": \"%s\",\n" % type2napi(t))
                ous.write("            \"napi_builder\": \"%s\"\n" % type2napibuilder(t))
                ous.write(  "         }")
            ous.write("],\n")
@@ -967,6 +996,9 @@ def def_API(name, result, params):
             elif ty == BOOL:
                 log_c.write("  I(a%s);\n" % i)
                 exe_c.write("in.get_bool(%s)" % i)
+            elif ty == VOID_PTR:
+                log_c.write("  P(0);\n")
+                exe_c.write("in.get_obj_addr(%s)" % i)
             elif ty == PRINT_MODE or ty == ERROR_CODE:
                 log_c.write("  U(static_cast<unsigned>(a%s));\n" % i)
                 exe_c.write("static_cast<%s>(in.get_uint(%s))" % (type2str(ty), i))
@@ -1719,7 +1751,7 @@ del _default_dirs
 del _all_dirs
 del _ext
 """)
-    
+
 def write_core_py_preamble(core_py):
   core_py.write(
 """
@@ -1781,7 +1813,7 @@ if _lib is None:
   print("Could not find libz3.%s; consider adding the directory containing it to" % _ext)
   print("  - your system's PATH environment variable,")
   print("  - the Z3_LIBRARY_PATH environment variable, or ")
-  print("  - to the custom Z3_LIBRARY_DIRS Python-builtin before importing the z3 module, e.g. via")
+  print("  - to the custom Z3_LIB_DIRS Python-builtin before importing the z3 module, e.g. via")
   if sys.version < '3':
     print("    import __builtin__")
     print("    __builtin__.Z3_LIB_DIRS = [ '/path/to/libz3.%s' ] " % _ext)
@@ -1790,25 +1822,24 @@ if _lib is None:
     print("    builtins.Z3_LIB_DIRS = [ '/path/to/libz3.%s' ] " % _ext)
   raise Z3Exception("libz3.%s not found." % _ext)
 
-def _str_to_bytes(s):
-  if isinstance(s, str):
-    try: 
-      return s.encode('latin-1')
-    except:
-      # kick the bucket down the road.  :-J
-      return s
-  else:
-    return s
 
 if sys.version < '3':
+  def _str_to_bytes(s):
+    return s
   def _to_pystr(s):
      return s
 else:
+  def _str_to_bytes(s):
+    if isinstance(s, str):
+        enc = sys.stdout.encoding
+        return s.encode(enc if enc != None else 'latin-1')
+    else:
+        return s
+
   def _to_pystr(s):
      if s != None:
         enc = sys.stdout.encoding
-        if enc != None: return s.decode(enc)
-        else: return s.decode('latin-1')
+        return s.decode(enc if enc != None else 'latin-1')
      else:
         return ""
 
@@ -1816,6 +1847,33 @@ _error_handler_type  = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint)
 
 _lib.Z3_set_error_handler.restype  = None
 _lib.Z3_set_error_handler.argtypes = [ContextObj, _error_handler_type]
+
+push_eh_type  = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
+pop_eh_type   = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint)
+fresh_eh_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+
+fixed_eh_type = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p)
+final_eh_type = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
+eq_eh_type    = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint)
+
+_lib.Z3_solver_propagate_init.restype = None
+_lib.Z3_solver_propagate_init.argtypes = [ContextObj, SolverObj, ctypes.c_void_p, push_eh_type, pop_eh_type, fresh_eh_type]
+
+_lib.Z3_solver_propagate_final.restype = None
+_lib.Z3_solver_propagate_final.argtypes = [ContextObj, SolverObj, final_eh_type]
+
+_lib.Z3_solver_propagate_fixed.restype = None
+_lib.Z3_solver_propagate_fixed.argtypes = [ContextObj, SolverObj, fixed_eh_type]
+
+_lib.Z3_solver_propagate_eq.restype = None
+_lib.Z3_solver_propagate_eq.argtypes = [ContextObj, SolverObj, eq_eh_type]
+
+_lib.Z3_solver_propagate_diseq.restype = None
+_lib.Z3_solver_propagate_diseq.argtypes = [ContextObj, SolverObj, eq_eh_type]
+
+on_model_eh_type = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
+_lib.Z3_optimize_register_model_eh.restype = None
+_lib.Z3_optimize_register_model_eh.argtypes = [ContextObj, OptimizeObj, ModelObj, ctypes.c_void_p, on_model_eh_type]
 
 """
   )
@@ -1906,7 +1964,7 @@ def generate_files(api_files,
       mk_dotnet_wrappers(dotnet_file)
       if mk_util.is_verbose():
         print("Generated '{}'".format(dotnet_file.name))
-        
+
   if java_output_dir:
     mk_java(java_output_dir, java_package_name)
 

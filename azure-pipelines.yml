@@ -21,7 +21,7 @@ jobs:
 - job: "LinuxPythonDebug"
   displayName: "Ubuntu build - python make - debug"
   pool:
-    vmImage: "Ubuntu-16.04"
+    vmImage: "Ubuntu-latest"
   strategy:
     matrix:
       MT:
@@ -42,7 +42,6 @@ jobs:
     - template: scripts/test-z3.yml
     - ${{if eq(variables['runRegressions'], 'True')}}:
       - template: scripts/test-regressions.yml
-    - template: scripts/generate-doc.yml
 
 - job: "Ubuntu18Python"
   displayName: "Ubuntu 18 with ocaml"
@@ -64,13 +63,14 @@ jobs:
         cd ..
     - template: scripts/test-z3.yml
     - template: scripts/test-regressions.yml
+    - template: scripts/generate-doc.yml
 
 
 - job: "LinuxMSan"
   displayName: "Ubuntu build - cmake"
   condition: eq(0,1) 
   pool:
-    vmImage: "Ubuntu-16.04"
+    vmImage: "Ubuntu-latest"
   strategy:
     matrix:
       msanClang:
@@ -103,7 +103,7 @@ jobs:
 - job: "Ubuntu16CMake"
   displayName: "Ubuntu build - cmake"
   pool:
-    vmImage: "Ubuntu-16.04"
+    vmImage: "Ubuntu-latest"
   strategy:
     matrix:
       releaseClang:
@@ -234,10 +234,10 @@ jobs:
 - job: "MacOSCMake"
   displayName: "MacOS build with CMake"
   pool:
-    vmImage: "macOS-10.14"
+    vmImage: "macOS-latest"
   steps:
     - script: brew install ninja
-    - script: brew cask install julia
+#   - script: brew install --cask julia
     - script: |
         julia -e "using Pkg; Pkg.add(PackageSpec(name=\"libcxxwrap_julia_jll\", version=\"0.7.0\"))"
         JlCxxDir=$(julia -e "using libcxxwrap_julia_jll; println(joinpath(dirname(libcxxwrap_julia_jll.libcxxwrap_julia_path), \"cmake\", \"JlCxx\"))")

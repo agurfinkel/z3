@@ -45,7 +45,7 @@ namespace smt {
 
     template<typename Ext>
     inline app * theory_dense_diff_logic<Ext>::mk_zero_for(expr * n) {
-        return m_autil.mk_numeral(rational(0), m.get_sort(n));
+        return m_autil.mk_numeral(rational(0), n->get_sort());
     }
 
     template<typename Ext>
@@ -124,7 +124,7 @@ namespace smt {
     void theory_dense_diff_logic<Ext>::found_non_diff_logic_expr(expr * n) {
         if (!m_non_diff_logic_exprs) {
             TRACE("non_diff_logic", tout << "found non diff logic expression:\n" << mk_pp(n, m) << "\n";);
-            ctx.push_trail(value_trail<context, bool>(m_non_diff_logic_exprs));
+            ctx.push_trail(value_trail<bool>(m_non_diff_logic_exprs));
             IF_VERBOSE(0, verbose_stream() << "(smt.diff_logic: non-diff logic expression " << mk_pp(n, m) << ")\n";); 
             m_non_diff_logic_exprs = true;
         }
@@ -804,11 +804,11 @@ namespace smt {
             enode * n = get_enode(v);
             if (m_autil.is_zero(n->get_owner()) && !m_assignment[v].is_zero()) {
                 numeral val = m_assignment[v];
-                sort * s = m.get_sort(n->get_owner());
+                sort * s = n->get_owner()->get_sort();
                 // adjust the value of all variables that have the same sort.
                 for (int v2 = 0; v2 < num_vars; ++v2) {
                     enode * n2 = get_enode(v2);
-                    if (m.get_sort(n2->get_owner()) == s) {
+                    if (n2->get_owner()->get_sort() == s) {
                         m_assignment[v2] -= val;
                     }
                 }
@@ -1106,7 +1106,7 @@ namespace smt {
             return f;
         }
         
-        e = m_autil.mk_numeral(val.get_rational(), m.get_sort(f));
+        e = m_autil.mk_numeral(val.get_rational(), f->get_sort());
         
         if (val.get_infinitesimal().is_neg()) {
             if (is_strict) {

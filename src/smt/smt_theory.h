@@ -18,6 +18,7 @@ Revision History:
 --*/
 #pragma once
 
+#include "ast/ast_pp.h"
 #include "smt/smt_enode.h"
 #include "smt/smt_quantifier.h"
 #include "util/obj_hashtable.h"
@@ -35,8 +36,8 @@ namespace smt {
         ast_manager &   m;
         enode_vector    m_var2enode;
         unsigned_vector m_var2enode_lim;
-        bool            m_is_lazy;
         unsigned        m_lazy_scopes;
+        bool            m_lazy;
 
         friend class context;
         friend class arith_value;
@@ -75,7 +76,7 @@ namespace smt {
         }
 
         bool lazy_push();
-        bool lazy_pop(unsigned num_scopes);
+        bool lazy_pop(unsigned& num_scopes);
         void force_push();
         
     public:
@@ -524,8 +525,13 @@ namespace smt {
            behavior conflicts with a convention used by the theory/family.
         */
         virtual app * mk_eq_atom(expr * lhs, expr * rhs) {
+            ast_manager& m = get_manager();
             if (lhs->get_id() > rhs->get_id())
                 std::swap(lhs, rhs);
+            if (m.are_distinct(lhs, rhs))                
+                return m.mk_false();
+            if (m.are_equal(lhs, rhs))
+                return m.mk_true();
             return get_manager().mk_eq(lhs, rhs);
         }
 
