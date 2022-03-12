@@ -161,8 +161,9 @@ std::ostream &json_marshaller::marshal(std::ostream &out) const {
                 json_marshal(pob_expr, n->post(), n->get_ast_manager());
 
                 nodes << ((unsigned)nodes.tellp() == 0 ? "" : ",\n") <<
-                    "{\"id\":\"" << depth << n <<
-                    "\",\"relative_time\":\"" << expand_time / root_expand_time <<
+                    "{\"id\":\"" << depth << n << "\",\"abs\":\""
+                      << n->is_conj() << "\",\"mrg\":\"" << n->is_subsume_pob()
+                      << "\",\"relative_time\":\"" << expand_time / root_expand_time <<
                     "\",\"absolute_time\":\"" << std::setprecision(2) << expand_time <<
                     "\",\"predicate\":\"" << n->pt().head()->get_name() <<
                     "\",\"expr_id\":\"" << n->post()->get_id() <<
