@@ -21,6 +21,7 @@ Notes:
 --*/
 
 #pragma once
+// clang-format off
 
 #include <algorithm>
 #include <fstream>
@@ -136,6 +137,7 @@ class lemma {
     unsigned m_blocked:1;     // blocked by CTP
     unsigned m_background:1;  // background assumed fact
     // clang-format on
+    // clang-format off
 
     void mk_expr_core();
     void mk_cube_core();
@@ -221,6 +223,7 @@ class pred_transformer {
                                          // expected
         unsigned m_num_reach_queries;
         // clang-format on
+        // clang-format off
 
         stats() { reset(); }
         void reset() { memset(this, 0, sizeof(*this)); }
@@ -240,6 +243,7 @@ class pred_transformer {
         bool m_sorted;                     // true if m_lemmas is sorted by m_lt
         lemma_lt_proc m_lt;                // sort order for m_lemmas
         // clang-format on
+        // clang-format off
 
         void sort();
 
@@ -346,6 +350,7 @@ class pred_transformer {
         app_ref_vector m_reps;   // map from fv in m_rule to ground constants
         app_ref m_tag;           // a unique tag for the rule
         // clang-format on
+        // clang-format off
 
       public:
         pt_rule(ast_manager &m, const datalog::rule &r)
@@ -505,6 +510,7 @@ class pred_transformer {
     bool                         m_has_quantified_frame; // True when a quantified lemma is in the frame
     cluster_db                   m_cluster_db;
     // clang-format on
+    // clang-format off
 
     void init_sig();
     app_ref mk_extend_lit();
@@ -761,6 +767,7 @@ class pob {
     std::map<unsigned, stopwatch> m_expand_watches;
     unsigned m_blocked_lvl;
     // clang-format on
+    // clang-format off
 
   public:
     pob(pob *parent, pred_transformer &pt, unsigned level, unsigned depth = 0,
@@ -922,6 +929,7 @@ class derivation {
     //  implicitly existentially quantified variables in m_trans
     app_ref_vector                      m_evars;
     // clang-format on
+    // clang-format off
 
     /// -- create next child using given model as the guide
     /// -- returns NULL if there is no next child
@@ -1126,6 +1134,7 @@ class context {
     json_marshaller      m_json_marshaller;
     std::fstream*        m_trace_stream;
     // clang-format on
+    // clang-format off
 
     // Solve using gpdr strategy
     lbool gpdr_solve_core();
