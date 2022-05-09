@@ -4109,7 +4109,17 @@ bool context::create_children(pob& n, datalog::rule const& r,
         unsigned j = kid_order[i];
 
         pred_transformer &pt = get_pred_transformer(preds.get(j));
-
+        bool is_reachable = false;
+        if (is_rf_pred(preds.get(j))) {
+            expr_ref_vector args(m);
+            //get the arguments for pred
+            for (unsigned k = 0; k < preds.get(j)->get_arity(); k++) {
+                args.push_back(m.mk_const(m_pm.o2o(pt.sig(k), 0, j)));
+            }
+            SASSERT(args.size() == 2);
+            is_reachable =
+                check_mdl_rf(preds.get(j), args.get(0), args.get(1), mdl);
+        }
         const ptr_vector<app> *aux = nullptr;
         expr_ref sum(m);
         sum = pt.get_origin_summary (mdl, prev_level(n.level()),
@@ -4118,7 +4128,8 @@ bool context::create_children(pob& n, datalog::rule const& r,
             dealloc(deriv);
             return false;
         }
-        deriv->add_premise (pt, j, sum, reach_pred_used[j], aux);
+        deriv->add_premise(pt, j, sum, is_reachable || reach_pred_used[j],
+                               aux);
     }
 
     // create post for the first child and add to queue
