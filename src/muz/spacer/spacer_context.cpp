@@ -1427,8 +1427,11 @@ lbool pred_transformer::is_reachable(pob& n, expr_ref_vector* core,
                    ctx.get_datalog_context().get_rule_manager().display_smt2(*r, tout);
                    tout << "\n";);
             TRACE("spacer_sat", tout << "model is:\n" << **model << "\n";);
+            // Written in "meet conference deadline" mode. Rewrite
+            // Treat undef as true if the formula contains recfuns
+            if (r && contains_rf_app(get_transition(*r), m))
+                is_sat = l_true;
         }
-
         return is_sat;
     }
     if (is_sat == l_false) {
