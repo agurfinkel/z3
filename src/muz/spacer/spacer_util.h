@@ -194,5 +194,10 @@ namespace spacer {
 
     // check whether mdl satisfies get_rf(pred)(arg1) == arg2
     bool check_mdl_rf(func_decl* pred, expr* arg1, expr* arg2, model &mdl);
+
+    //contains a recfun term
+    bool contains_rf_app(expr *e, ast_manager& m);
+
+    bool contains_rf_app(expr_ref_vector& cube);
 }
 

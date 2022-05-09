@@ -1136,6 +1136,33 @@ namespace {
         eq = m.mk_eq(rf_app, arg2);
         return mdl.is_true(eq);
     }
+
+    namespace contains_rf_ns {
+    struct found {};
+    struct contains_rf_proc {
+        ast_manager &m;
+        recfun::util m_recfun;
+        contains_rf_proc(ast_manager &a_m) : m(a_m), m_recfun(m) {}
+        void operator()(expr *n) const {}
+        void operator()(app *n) {
+            if (m_recfun.has_def(n->get_decl())) throw found();
+        }
+    };
+    } // namespace contains_rf_ns
+    bool contains_rf_app(expr* e, ast_manager& m) {
+        contains_rf_ns::contains_rf_proc t(m);
+        try {
+            for_each_expr(t, e);
+            return false;
+        } catch (const contains_rf_ns::found &) { return true; }
+    }
+
+    bool contains_rf_app(expr_ref_vector& cube) {
+        TRACE("spacer", tout << "checking " << cube << "\n";);
+        for (auto a : cube)
+            if (contains_rf_app(a, cube.m())) return true;
+        return false;
+    }
 } // namespace spacer
 template class rewriter_tpl<spacer::adhoc_rewriter_cfg>;
 template class rewriter_tpl<spacer::adhoc_rewriter_rpp>;
