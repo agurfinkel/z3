@@ -214,9 +214,8 @@ void derivation::add_premise (pred_transformer &pt,
                               unsigned oidx,
                               expr* summary,
                               bool must,
-                              const ptr_vector<app> *aux_vars,
-                              bool should_use) {
-    m_premises.push_back (premise (pt, oidx, summary, must, aux_vars, should_use));
+                              const ptr_vector<app> *aux_vars) {
+    m_premises.push_back (premise (pt, oidx, summary, must, aux_vars));
 }
 
 
@@ -263,7 +262,7 @@ pob *derivation::create_next_child(model &mdl) {
     app_ref_vector vars(m);
 
     // -- find first may premise
-    while (m_active < m_premises.size() && (m_premises[m_active].is_must() || !m_premises[m_active].should_use())) {
+    while (m_active < m_premises.size() && m_premises[m_active].is_must()) {
         summaries.push_back (m_premises[m_active].get_summary ());
         vars.append (m_premises[m_active].get_ovars ());
         ++m_active;
@@ -434,10 +433,10 @@ pob *derivation::create_next_child ()
 
 derivation::premise::premise (pred_transformer &pt, unsigned oidx,
                               expr *summary, bool must,
-                              const ptr_vector<app> *aux_vars, bool should_use) :
+                              const ptr_vector<app> *aux_vars) :
     m_pt (pt), m_oidx (oidx),
     m_summary (summary, pt.get_ast_manager ()), m_must (must),
-    m_ovars (pt.get_ast_manager ()), m_should_use(should_use)
+    m_ovars (pt.get_ast_manager ())
 {
 
     ast_manager &m = m_pt.get_ast_manager ();
@@ -463,7 +462,6 @@ void derivation::premise::set_summary (expr * summary, bool must,
     unsigned sig_sz = m_pt.head ()->get_arity ();
 
     m_must = must;
-    m_should_use = true;
     sm.formula_n2o (summary, m_summary, m_oidx);
 
     m_ovars.reset ();
@@ -2304,10 +2302,10 @@ context::context(fp_params const& params, ast_manager& m) :
     m_expanded_lvl(0),
     m_global_gen(nullptr),
     m_expand_bnd_gen(nullptr),
-    m_json_marshaller(this),
-    m_trace_stream(nullptr),
+    m_max_recfun_unroll(2),
     m_recfun_unroll_upd_lvl(0),
-    m_max_recfun_unroll(2) {
+    m_json_marshaller(this),
+    m_trace_stream(nullptr) {
 
     params_ref p;
     p.set_uint("arith.solver", params.spacer_arith_solver());
@@ -3247,10 +3245,9 @@ bool context::check_reachability ()
         }
 
         SASSERT (m_pob_queue.top ());
-        // Written in "meet conference deadline" mode. Rewrite
         // Strange that k is increased even when we do not make use of it.
         if (m_stats.m_max_depth >= m_recfun_unroll_upd_lvl + K_UPDT_DELTA) {
-            m_max_recfun_unroll++;
+            // m_max_recfun_unroll++;
             m_recfun_unroll_upd_lvl = m_stats.m_max_depth;
             TRACE("spacer", tout << "Increasing value of k \n";);
         }
@@ -4128,22 +4125,6 @@ bool context::create_children(pob& n, datalog::rule const& r,
         unsigned j = kid_order[i];
 
         pred_transformer &pt = get_pred_transformer(preds.get(j));
-        bool is_reachable = false;
-        // if (is_rf_pred(preds.get(j))) {
-        //     expr_ref_vector args(m);
-        //     //get the arguments for pred
-        //     for (unsigned k = 0; k < preds.get(j)->get_arity(); k++) {
-        //         args.push_back(m.mk_const(m_pm.o2o(pt.sig(k), 0, j)));
-        //     }
-        //     SASSERT(args.size() == 2);
-        //     is_reachable =
-        //         check_mdl_rf(preds.get(j), args.get(0), args.get(1), mdl);
-        //     TRACE("spacer", tout << "checking values " << mk_pp(args.get(0), m)
-        //                          << " and " << mk_pp(args.get(1), m)
-        //                          << " val is " << is_reachable << "\n";
-        //           expr_ref res(m); res = mdl(args.get(0)); tout << res << " ";
-        //           res = mdl(args.get(1)); tout << res << "\n";);
-        // }
         const ptr_vector<app> *aux = nullptr;
         expr_ref sum(m);
         sum = pt.get_origin_summary (mdl, prev_level(n.level()),
@@ -4152,7 +4133,7 @@ bool context::create_children(pob& n, datalog::rule const& r,
             dealloc(deriv);
             return false;
         }
-        deriv->add_premise(pt, j, sum, reach_pred_used[j], aux, !is_reachable);
+        deriv->add_premise(pt, j, sum, reach_pred_used[j], aux);
     }
 
     // create post for the first child and add to queue
@@ -4173,9 +4154,9 @@ bool context::create_children(pob& n, datalog::rule const& r,
     // -- not satisfy 'T && phi'. It is possible to recover from
     // -- that more gracefully. For now, we just remove the
     // -- derivation completely forcing it to be recomputed
-    // if (m_weak_abs && (!mdl.is_true(pt.get_transition(r)) ||
-                       // !mdl.is_true(n.post())))
-    // { kid->reset_derivation(); }
+    if (m_weak_abs && !contains_rf_app(pt.get_transition(r), m) && (!mdl.is_true(pt.get_transition(r)) ||
+                                                                    !mdl.is_true(n.post())))
+    { kid->reset_derivation(); }
 
     if (kid->is_may_pob()) {
         SASSERT(n.get_gas() > 0);

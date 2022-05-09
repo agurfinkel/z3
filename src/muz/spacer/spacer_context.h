@@ -1035,15 +1035,12 @@ class derivation {
         ///  whether this is a must or may premise
         bool m_must;
         app_ref_vector m_ovars;
-        /// whether you want to create a POB from this premise
-        bool m_should_use;
 
     public:
         premise (pred_transformer &pt, unsigned oidx, expr *summary, bool must,
-                 const ptr_vector<app> *aux_vars = nullptr, bool should_use = true);
+                 const ptr_vector<app> *aux_vars = nullptr);
 
         bool is_must() {return m_must;}
-        bool should_use() {return m_should_use;}
         expr * get_summary() {return m_summary.get ();}
         app_ref_vector &get_ovars() {return m_ovars;}
         unsigned get_oidx() {return m_oidx;}
@@ -1079,7 +1076,7 @@ public:
     derivation (pob& parent, datalog::rule const& rule,
                 expr *trans, app_ref_vector const &evars);
     void add_premise (pred_transformer &pt, unsigned oidx,
-                      expr * summary, bool must, const ptr_vector<app> *aux_vars = nullptr, bool should_use = true);
+                      expr * summary, bool must, const ptr_vector<app> *aux_vars = nullptr);
 
     /// creates the first child. Must be called after all the premises
     /// are added. The model must be valid for the premises
