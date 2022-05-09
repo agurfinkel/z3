@@ -182,8 +182,17 @@ namespace spacer {
 
     // get all numeral values in the formula
     void extract_nums(expr_ref fml, vector<rational> &res);
+
+    //returns whether predicate \p pred represents a recursive function
+    bool is_rf_pred(func_decl* pred);
+
     // remove all applications of rf in res;
     void drop_rf_app(expr_ref_vector& res);
 
+    // get the recfun definition corresponding to rf pred pred
+    func_decl* get_rf_pred(func_decl* pred, ast_manager &m);
+
+    // check whether mdl satisfies get_rf(pred)(arg1) == arg2
+    bool check_mdl_rf(func_decl* pred, expr* arg1, expr* arg2, model &mdl);
 }
 

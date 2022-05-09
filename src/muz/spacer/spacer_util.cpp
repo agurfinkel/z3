@@ -1089,6 +1089,13 @@ namespace {
         } catch (const contains_real_ns::found &) { return true; }
     }
 
+    // returns whether predicate \p pred represents a recursive function
+    // TODO: reimpliment
+    bool is_rf_pred(func_decl *pred) {
+        std::string nm = pred->get_name().str();
+        return nm.find("length") != std::string::npos || nm.find("size") != std::string::npos || nm.find("sum") != std::string::npos;
+    }
+
     // remove all applications of rf in res;
     void drop_rf_app(expr_ref_vector &res) {
         if (res.empty()) return;
@@ -1105,6 +1112,29 @@ namespace {
             }
         }
         res.shrink(i);
+    }
+
+    func_decl* get_rf_pred(func_decl *pred, ast_manager& m) {
+        SASSERT(is_rf_pred(pred));
+        std::string nm = pred->get_name().str();
+        recfun::util recfun(m);
+        func_decl_ref_vector rfs(m);
+        rfs = recfun.get_rec_funs();
+        for (auto f : rfs) {
+            if (nm.find(f->get_name().str()) != std::string::npos) return f;
+        }
+        SASSERT(false);
+        return nullptr;
+    }
+
+    // check whether mdl satisfies get_rf(pred)(arg1) == arg2
+    bool check_mdl_rf(func_decl *pred, expr *arg1, expr *arg2, model &mdl) {
+        ast_manager &m(mdl.get_manager());
+        func_decl *rf = get_rf_pred(pred, m);
+        expr_ref eq(m), rf_app(m);
+        rf_app = m.mk_app(rf, arg1);
+        eq = m.mk_eq(rf_app, arg2);
+        return mdl.is_true(eq);
     }
 } // namespace spacer
 template class rewriter_tpl<spacer::adhoc_rewriter_cfg>;
