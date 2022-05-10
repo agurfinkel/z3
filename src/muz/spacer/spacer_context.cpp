@@ -3484,12 +3484,9 @@ bool context::mk_mdl_rf_consistent(model &mdl) {
 // 1. all the reachable states whose tag is set in the model
 // 2. Tr && pob
 bool context::check_mdl(pob &n, const datalog::rule *r, model &model) {
-    if (r == nullptr) {
-        if (model.is_true(n.post()) && mk_mdl_rf_consistent(model))
-            return true;
-        else
-            return false;
-    }
+    if (r == nullptr)
+        return (model.is_true(n.post()) && mk_mdl_rf_consistent(model));
+
     // model \models reach_fact && Tr && pob
     if (model.is_true(n.pt().get_transition(*r)) && model.is_true(n.post()) &&
         n.pt().mk_mdl_rf_consistent(r, model)) {
