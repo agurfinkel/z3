@@ -10,6 +10,7 @@ z3_add_component(smt_params
     theory_pb_params.cpp
     theory_seq_params.cpp
     theory_str_params.cpp
+    theory_recfun_params.cpp
   COMPONENT_DEPENDENCIES
     ast
     bit_blaster

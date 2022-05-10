@@ -30,12 +30,14 @@ namespace smt {
     theory_recfun::theory_recfun(context& ctx)
         : theory(ctx, ctx.get_manager().mk_family_id("recfun")), 
           m_plugin(*reinterpret_cast<recfun::decl::plugin*>(m.get_plugin(get_family_id()))),
-          m_util(m_plugin.u()), 
+          m_util(m_plugin.u()),
+          m_params(ctx.get_fparams()),
           m_disabled_guards(m),
           m_enabled_guards(m),
           m_preds(m),
           m_num_rounds(0),
-          m_q_case_expand(), 
+          m_unrolls(0),
+          m_q_case_expand(),
           m_q_body_expand() {
         m_num_rounds = 0;
         }
@@ -50,8 +52,7 @@ namespace smt {
         return alloc(theory_recfun, *new_ctx);
     }
 
-    void theory_recfun::init_search_eh() {
-    }
+    void theory_recfun::init_search_eh() { }
 
     bool theory_recfun::internalize_atom(app * atom, bool gate_ctx) {
         force_push();
@@ -78,7 +79,7 @@ namespace smt {
     bool theory_recfun::internalize_term(app * term) {
         force_push();
         if (!u().has_defs()) {
-            return false;
+          return false;
         }
         for (expr* e : *term) {
             ctx.internalize(e, false);
@@ -113,6 +114,7 @@ namespace smt {
         m_disabled_guards.reset();
         m_enabled_guards.reset();
         m_q_guards.reset();
+        m_unrolls = 0;
         for (auto & kv : m_guard2pending) {
             dealloc(kv.m_value);
         }
@@ -166,14 +168,17 @@ namespace smt {
     }
      
     bool theory_recfun::can_propagate() {
-        return 
-            !m_q_case_expand.empty() ||
-            !m_q_body_expand.empty() ||
-            !m_q_clauses.empty() ||
-            !m_q_guards.empty();
+      return (!m_params.m_weaken ||
+              m_unrolls < m_params.m_max_rounds) &&
+          (!m_q_case_expand.empty() ||
+           !m_q_body_expand.empty() ||
+           !m_q_clauses.empty() ||
+           !m_q_guards.empty());
     }
     
     void theory_recfun::propagate() {
+
+        if (!can_propagate()) return;
 
         for (expr* g : m_q_guards) {
             expr* ng = nullptr;
@@ -378,6 +383,7 @@ namespace smt {
             else if (!is_enabled_guard(pred_applied)) {
                 disable_guard(pred_applied, guards);
                 max_depth = std::max(depth, max_depth);
+                m_unrolls++;
                 continue;
             }
             activate_guard(pred_applied, guards);
@@ -457,6 +463,9 @@ namespace smt {
             propagate();
             return FC_CONTINUE;
         }
+        if (m_params.m_weaken && m_unrolls >= m_params.m_max_rounds) {
+          return FC_GIVEUP;
+        }
         return FC_DONE;
     }
 
@@ -501,7 +510,8 @@ namespace smt {
                 IF_VERBOSE(1, verbose_stream() << "(smt.recfun :enable-guard " << mk_pp(to_delete, m) << ")\n");
             }
             else {
-                IF_VERBOSE(1, verbose_stream() << "(smt.recfun :increment-round)\n");
+              IF_VERBOSE(1, verbose_stream()
+                                << "(smt.recfun :increment-round)\n");
             }
         }
         return found;

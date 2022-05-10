@@ -70,6 +70,7 @@ void smt_params::updt_params(params_ref const & p) {
     // theory_array_params::updt_params(p);
     theory_datatype_params::updt_params(p);
     theory_str_params::updt_params(p);
+    theory_recfun_params::updt_params(p);
     updt_local_params(p);
 }
 
@@ -90,6 +91,7 @@ void smt_params::display(std::ostream & out) const {
     theory_pb_params::display(out);
     theory_datatype_params::display(out);
     theory_str_params::display(out);
+    theory_recfun_params::display(out);
 
     DISPLAY_PARAM(m_display_proof);
     DISPLAY_PARAM(m_display_dot_proof);

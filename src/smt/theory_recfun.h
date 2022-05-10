@@ -18,11 +18,11 @@ Revision History:
 --*/
 #pragma once
 
-#include "smt/smt_theory.h"
-#include "smt/smt_context.h"
 #include "ast/ast_pp.h"
 #include "ast/recfun_decl_plugin.h"
-
+#include "smt/smt_context.h"
+#include "smt/smt_theory.h"
+#include "smt/params/theory_recfun_params.h"
 namespace smt {
 
     class theory_recfun : public theory {
@@ -91,6 +91,7 @@ namespace smt {
         recfun::decl::plugin&   m_plugin;
         recfun::util&           m_util;
         stats                   m_stats;
+        theory_recfun_params&   m_params;
 
         // book-keeping for depth of predicates
         expr_ref_vector          m_disabled_guards;
@@ -100,6 +101,7 @@ namespace smt {
         expr_ref_vector          m_preds;
         unsigned_vector          m_preds_lim;
         unsigned                 m_num_rounds;
+        unsigned                 m_unrolls;
 
         ptr_vector<case_expansion> m_q_case_expand;
         ptr_vector<body_expansion> m_q_body_expand;
@@ -164,6 +166,8 @@ namespace smt {
         void init_search_eh() override;
         void display(std::ostream & out) const override;
         void collect_statistics(::statistics & st) const override;
+        // HG: Hack to reset m_unrolls when check_sat_starts
+        void reset_unrolls() { m_unrolls = 0;}
     };
 }
 

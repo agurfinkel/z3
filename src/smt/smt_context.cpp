@@ -40,6 +40,7 @@ Revision History:
 #include "smt/smt_model_finder.h"
 #include "smt/smt_parallel.h"
 #include "smt/smt_arith_value.h"
+#include "smt/theory_recfun.h"
 
 namespace smt {
 
@@ -3617,6 +3618,9 @@ namespace smt {
             return p(asms);
         }
         lbool r;
+        recfun::util u(m);
+        theory_recfun * t = (theory_recfun*)m_theories.get_plugin(u.get_family_id());
+        if(t) t->reset_unrolls();
         do {
             pop_to_base_lvl();
             expr_ref_vector asms(m, num_assumptions, assumptions);
