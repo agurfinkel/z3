@@ -1289,6 +1289,8 @@ class context {
     unsigned             m_max_level;
     unsigned             m_restart_initial_threshold;
     unsigned             m_blast_term_ite_inflation;
+    unsigned             m_max_recfun_unroll;
+    unsigned             m_recfun_unroll_upd_lvl;
     scoped_ptr_vector<spacer_callback> m_callbacks;
     json_marshaller      m_json_marshaller;
     std::fstream*        m_trace_stream;
@@ -1386,6 +1388,7 @@ public:
     bool elim_aux() const {return m_elim_aux;}
     bool reach_dnf() const {return m_reach_dnf;}
     bool use_bg_invs() const {return m_use_bg_invs;}
+    unsigned get_max_recfun_unroll() const {return m_max_recfun_unroll;}
 
     ast_manager&      get_ast_manager() const {return m;}
     manager&          get_manager() {return m_pm;}

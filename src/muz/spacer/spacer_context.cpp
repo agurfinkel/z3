@@ -57,6 +57,7 @@ Notes:
 
 #define WEAKNESS_MAX 65535
 #define MAX_WEAKNESS 10
+#define K_UPDT_DELTA 1
 namespace spacer {
 
 /// pob -- proof obligation
@@ -1366,6 +1367,7 @@ lbool pred_transformer::is_reachable(pob& n, expr_ref_vector* core,
         *m_solver, !(use_iuc && n.use_farkas_generalizer()));
     prop_solver::scoped_weakness _sw(*m_solver, 0,
                                      ctx.weak_abs() ? n.weakness() : UINT_MAX);
+    prop_solver::scoped_recfun_unroll_depth _srecfun(*m_solver, 0, ctx.get_max_recfun_unroll());
     m_solver->set_core(core);
     m_solver->set_model(model);
 
@@ -1508,6 +1510,8 @@ bool pred_transformer::is_invariant(unsigned level, lemma* lem,
     prop_solver::scoped_subset_core _sc (*m_solver, true);
     prop_solver::scoped_weakness _sw (*m_solver, 1,
                                       ctx.weak_abs() ? lem->weakness() : UINT_MAX);
+    prop_solver::scoped_recfun_unroll_depth _srecfun(
+        *m_solver, 0, ctx.get_max_recfun_unroll());
     model_ref mdl;
     model_ref *mdl_ref_ptr = nullptr;
     if (ctx.use_ctp()) {mdl_ref_ptr = &mdl;}
@@ -1546,6 +1550,8 @@ bool pred_transformer::check_inductive(unsigned level, expr_ref_vector& state,
     prop_solver::scoped_subset_core _sc (*m_solver, true);
     prop_solver::scoped_weakness _sw (*m_solver, 1,
                                       ctx.weak_abs() ? weakness : UINT_MAX);
+    prop_solver::scoped_recfun_unroll_depth _srecfun(
+        *m_solver, 0, ctx.get_max_recfun_unroll());
     m_solver->set_core(&core);
     m_solver->set_model (nullptr);
     expr_ref_vector aux (m);
@@ -2296,7 +2302,9 @@ context::context(fp_params const& params, ast_manager& m) :
     m_global_gen(nullptr),
     m_expand_bnd_gen(nullptr),
     m_json_marshaller(this),
-    m_trace_stream(nullptr) {
+    m_trace_stream(nullptr),
+    m_recfun_unroll_upd_lvl(0),
+    m_max_recfun_unroll(2) {
 
     params_ref p;
     p.set_uint("arith.solver", params.spacer_arith_solver());
@@ -3236,7 +3244,13 @@ bool context::check_reachability ()
         }
 
         SASSERT (m_pob_queue.top ());
-
+        // Written in "meet conference deadline" mode. Rewrite
+        // Strange that k is increased even when we do not make use of it.
+        if (m_stats.m_max_depth >= m_recfun_unroll_upd_lvl + K_UPDT_DELTA) {
+            m_max_recfun_unroll++;
+            m_recfun_unroll_upd_lvl = m_stats.m_max_depth;
+            TRACE("spacer", tout << "Increasing value of k \n";);
+        }
         if (m_use_restarts && m_stats.m_num_lemmas - initial_size > threshold) {
             luby_idx++;
             m_stats.m_num_restarts++;
