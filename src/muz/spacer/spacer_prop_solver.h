@@ -163,6 +163,25 @@ public:
         }
         ~scoped_weakness() {if (sol) {sol->pop_params();}}
     };
+
+    class scoped_recfun_unroll_depth {
+      public:
+        solver *sol;
+        scoped_recfun_unroll_depth(prop_solver &ps, unsigned solver_id, unsigned recfun_unroll_depth)
+            : sol(nullptr) {
+            sol = ps.m_solvers[solver_id == 0 ? 0 : 0 /* 1 */].get();
+            if (!sol) return;
+            sol->push_params();
+
+            params_ref p;
+            p.set_bool("recfun.weak", true);
+            p.set_uint("recfun.max_rounds", recfun_unroll_depth);
+            sol->updt_params(p);
+        }
+        ~scoped_recfun_unroll_depth() {
+            if (sol) { sol->pop_params(); }
+        }
+    };
 };
 }
 
