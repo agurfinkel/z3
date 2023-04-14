@@ -455,7 +455,6 @@ namespace qe {
         blocks.push_back(expr_ref_vector(m));
         blocks.push_back(expr_ref_vector(m));
         mbi_result last_res = mbi_undef;
-        bool_rewriter rw(m);
         while (true) {
             auto* t1 = turn ? &a : &b;
             auto* t2 = turn ? &b : &a;
@@ -472,7 +471,12 @@ namespace qe {
                 if (lits.empty()) {
                     // TBD, either a => itp and itp => !b
                     // or          b => itp and itp => !a
-                    itp = mk_and(itps[!turn]);
+                    if (!turn && itps[turn].empty() && itps[!turn].empty()) {
+                      // b is unsat, the itp is false
+                      itp = m.mk_false();
+                    } else {
+                      itp = mk_and(itps[!turn]);
+                    }
                     return l_false;
                 }
                 t2->block(lits);
