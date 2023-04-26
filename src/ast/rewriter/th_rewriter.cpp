@@ -38,7 +38,6 @@ Notes:
 #include "ast/ast_util.h"
 #include "ast/well_sorted.h"
 #include "ast/for_each_expr.h"
-
 namespace {
 struct th_rewriter_cfg : public default_rewriter_cfg {
     bool_rewriter       m_b_rw;
@@ -640,6 +639,8 @@ struct th_rewriter_cfg : public default_rewriter_cfg {
             else
                 st = pull_ite(result);
         }
+	if (f->get_family_id() == null_family_id && f->get_name() == peq::PARTIAL_EQ)
+	  st = m_ar_rw.mk_app_core(f,  num, args, result);
         CTRACE("th_rewriter_step", st != BR_FAILED,
                tout << f->get_name() << "\n";
                for (unsigned i = 0; i < num; i++) tout << mk_ismt2_pp(args[i], m()) << "\n";

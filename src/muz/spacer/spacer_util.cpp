@@ -51,7 +51,7 @@ Notes:
 #include "model/model_smt2_pp.h"
 #include "smt/params/smt_params.h"
 
-#include "qe/lite/qe_lite.h"
+#include "qe/lite/qel.h"
 #include "qe/mbp/mbp_plugin.h"
 #include "qe/mbp/mbp_term_graph.h"
 #include "qe/qe_mbp.h"
@@ -68,6 +68,25 @@ Notes:
 #include "muz/spacer/spacer_util.h"
 
 namespace spacer {
+
+    namespace contains_def_ns {
+        struct found {};
+        struct check_default {
+            array_util a;
+            check_default(ast_manager &m) : a(m) {}
+            void operator()(expr *n) {}
+            void operator()(app *n) {
+                if (a.is_default(n)) throw found();
+            }
+        };
+    }
+    bool contains_defaults(expr *fml, ast_manager &m) {
+        contains_def_ns::check_default cd(m);
+        try {
+            for_each_expr(cd, fml);
+            return false;
+        } catch (const contains_def_ns::found &) { return true; }
+    }
 
 bool is_clause(ast_manager &m, expr *n) {
     if (spacer::is_literal(m, n)) return true;
@@ -173,7 +192,7 @@ void qe_project_spacer(ast_manager &m, app_ref_vector &vars, expr_ref &fml,
 
     while (true) {
         params_ref p;
-        qe_lite qe(m, p, false);
+        qel qe(m, p);
         qe(vars, fml);
         rw(fml);
 

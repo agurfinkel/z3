@@ -40,8 +40,27 @@ void array_rewriter::get_param_descrs(param_descrs & r) {
 }
 
 br_status array_rewriter::mk_app_core(func_decl * f, unsigned num_args, expr * const * args, expr_ref & result) {
+  br_status st;
+  if (f->get_name() == peq::PARTIAL_EQ) {
+    if (m_util.is_store(args[0]) && to_app(args[0])->get_arg(0) == args[1] && num_args == 2) {
+      expr* rdArgs[2] = {args[1], to_app(args[0])->get_arg(1)};
+      mk_select(2, rdArgs, result);
+      result = m().mk_eq(result, to_app(args[0])->get_arg(2));
+      st = BR_REWRITE_FULL;
+      return st;
+    }
+    else if (m_util.is_store(args[0]) && to_app(args[0])->get_arg(0) == args[1] && num_args == 3 && args[2] == to_app(args[0])->get_arg(1)) {
+      result = m().mk_true();
+      st = BR_DONE;
+      return st;
+    }
+    else if (args[0] == args[1]) {
+      result = m().mk_true();
+      st = BR_DONE;
+      return st;
+    }
+  }
     SASSERT(f->get_family_id() == get_fid());
-    br_status st;
     switch (f->get_decl_kind()) {
     case OP_SELECT:
         st = mk_select_core(num_args, args, result);

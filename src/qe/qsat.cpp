@@ -39,6 +39,7 @@ Notes:
 #include "qe/qe_mbp.h"
 #include "qe/qe.h"
 #include "ast/rewriter/label_rewriter.h"
+#include "util/params.h"
 
 namespace qe {
 
@@ -1236,6 +1237,9 @@ namespace qe {
             m_was_sat(false),
             m_gt(m)
         {
+             params_ref q = params_ref();
+             q.set_bool("use_qel", false);
+             m_mbp.updt_params(q);
         }
         
         ~qsat() override {
