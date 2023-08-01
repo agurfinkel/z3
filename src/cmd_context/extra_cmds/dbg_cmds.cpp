@@ -372,7 +372,7 @@ public:
             }
             vars.push_back(to_app(v));
         }
-        qe::mbproj mbp(m);
+        qe::mbproj mbp(m, gparams::get_module("smt"));
         expr_ref fml(m_fml, m);
         mbp.spacer(vars, *mdl.get(), fml);
         ctx.regular_stream() << fml << "\n";

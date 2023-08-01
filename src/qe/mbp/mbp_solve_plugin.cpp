@@ -273,7 +273,7 @@ namespace mbp {
           }
 
           expr *first = nullptr, *second = nullptr;
-          VERIFY(a.is_mul(rhs, first, second));
+          if(!a.is_mul(rhs, first, second)) return false;
           if (!a.is_int(first) || a.is_zero(first)) {
             if (a.is_int(second) && !a.is_zero(second)) { // expr*k --> k*expr
               std::swap(first, second);
