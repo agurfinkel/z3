@@ -583,7 +583,9 @@ namespace datalog {
             m_rule_properties.collect(r);
             m_rule_properties.check_existential_tail();
             m_rule_properties.check_for_negated_predicates();
-            m_rule_properties.check_uninterpreted_free();
+            if (!m_params->spacer_euf()) {
+              m_rule_properties.check_uninterpreted_free();
+            }
             m_rule_properties.check_quantifier_free(exists_k);
             m_rule_properties.check_background_free();
             break;

@@ -186,4 +186,5 @@ def_module_params('fp',
                           ('spacer.gg.subsume', BOOL, True, 'Enable global guidance subsume'),
                           ('spacer.use_iuc', BOOL, True, 'Enable Interpolating Unsat Core(IUC) for lemma generalization'),
                           ('spacer.expand_bnd', BOOL, False, 'Enable expand-bound lemma generalization'),
+                          ('spacer.euf', BOOL, False, 'Enable uninterpreted functions'),
                           ))
